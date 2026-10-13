@@ -324,6 +324,7 @@ const CFG = {
   // Multiplayer: the player who starts a fight hosts it (runs the boss); others join through the relay at /mp
   mp: {
     hpPerPlayer: 0.6,        // each hunter who joins adds this fraction of base boss HP
+    maxTargets: { meteor: 3, skyward: 3, pincer: 2 },   // how many hunters a targeted move aims at in one cast
     sendHz: 15,              // position + boss snapshots per second
     colors: [0xffd23f, 0x49f2a8, 0xff7ad9, 0xff9a3d]   // teammates (you are always blue)
   }
@@ -909,10 +910,13 @@ const ABILITIES = {
   meteor: {
     name: 'Starfall', weight: c => c.dist > 9 ? 1.2 : 0.7,
     *run(c) {
-      const n = c.phase >= 3 ? 7 : 5; c.cast(this.name, n * 0.32 + 1.05 * c.ts);
+      const n = c.phase >= 3 ? 7 : 5, tgs = c.targets(); c.cast(this.name, n * 0.32 + 1.05 * c.ts);
       for (let i = 0; i < n; i++) {
-        const o = { x: c.tg.x + c.tg.vx * 0.12, z: c.tg.z + c.tg.vz * 0.12 }; clampArena(o, 1);
-        c.tele({ shape: 'circle', x: o.x, z: o.z, r: 2.6, dur: 1.05 * c.ts, dmg: 14 });
+        for (const tg of tgs) {   // a stream of stars chasing each hunter
+          if (tg.hp <= 0) continue;
+          const o = { x: tg.x + tg.vx * 0.12, z: tg.z + tg.vz * 0.12 }; clampArena(o, 1);
+          c.tele({ shape: 'circle', x: o.x, z: o.z, r: 2.6, dur: 1.05 * c.ts, dmg: 14 });
+        }
         yield 0.32;
       }
       yield 0.9;
@@ -968,12 +972,15 @@ const ABILITIES = {
       B.lockTurn = true; const wd = 0.8 * c.ts, speed = 10.5, r0 = 2.2;
       c.cast(this.name, wd + 1.4);
       c.tele({ shape: 'circle', x: B.x, z: B.z, r: 3.2, dur: wd, hits: 'ground', visual: true });
-      const rot = angTo(B.x, B.z, c.tg.x, c.tg.z), nx = Math.cos(rot), nz = -Math.sin(rot);
-      for (const s of [0, -1, 1]) {
-        const o = { x: c.tg.x + nx * s * 4.6, z: c.tg.z + nz * s * 4.6 }; clampArena(o, 1.5);
-        const travel = Math.max(0.3, (Math.hypot(o.x - B.x, o.z - B.z) - r0) / speed);
-        c.tele({ shape: 'circle', x: o.x, z: o.z, r: 2.3, dur: wd + travel, hits: 'air', dmg: 20 });
-      }
+      c.targets().forEach((tg, i) => {
+        // the main target gets a lance on it and one either side; others get one lance on them, so lances don't wall off the whole arena
+        const rot = angTo(B.x, B.z, tg.x, tg.z), nx = Math.cos(rot), nz = -Math.sin(rot);
+        for (const s of i === 0 ? [0, -1, 1] : [0]) {
+          const o = { x: tg.x + nx * s * 4.6, z: tg.z + nz * s * 4.6 }; clampArena(o, 1.5);
+          const travel = Math.max(0.3, (Math.hypot(o.x - B.x, o.z - B.z) - r0) / speed);
+          c.tele({ shape: 'circle', x: o.x, z: o.z, r: 2.3, dur: wd + travel, hits: 'air', dmg: 20 });
+        }
+      });
       yield wd;
       spawnWave({ x: B.x, z: B.z, r: r0, speed, dmg: 22, ability: 'skyward' }); B.animate('slam'); shake(0.3, 0.25);
       yield 1.4;
@@ -1007,12 +1014,17 @@ const ABILITIES = {
   pincer: {
     name: 'Pincer Rails', learned: 'pincer', weight: () => 1.3,
     *run(c) {
-      B.lockTurn = true; const rot = angTo(B.x, B.z, c.tg.x, c.tg.z), dx = Math.sin(rot), dz = Math.cos(rot), nx = dz, nz = -dx;
-      const px = c.tg.x, pz = c.tg.z, d = 1.0 * c.ts;
+      B.lockTurn = true; const d = 1.0 * c.ts;
       c.cast(this.name, d + 0.6);
-      for (const s of [-1, 1]) c.tele({ shape: 'rect', x: px + nx * s * 2.9 - dx * 14, z: pz + nz * s * 2.9 - dz * 14, rot, w: 3.2, len: 28, dur: d, dmg: 22 });
+      // rails boxing in each hunter, each set lined up from the Warden to that hunter
+      const sets = c.targets().map(tg => {
+        const rot = angTo(B.x, B.z, tg.x, tg.z);
+        return { rot, px: tg.x, pz: tg.z, dx: Math.sin(rot), dz: Math.cos(rot) };
+      });
+      for (const { rot, px, pz, dx, dz } of sets)
+        for (const s of [-1, 1]) c.tele({ shape: 'rect', x: px + dz * s * 2.9 - dx * 14, z: pz - dx * s * 2.9 - dz * 14, rot, w: 3.2, len: 28, dur: d, dmg: 22 });
       yield d * 0.55;
-      c.tele({ shape: 'rect', x: px - dx * 14, z: pz - dz * 14, rot, w: 2.6, len: 28, dur: d * 0.45 + 0.55, dmg: 22 });
+      for (const { rot, px, pz, dx, dz } of sets) c.tele({ shape: 'rect', x: px - dx * 14, z: pz - dz * 14, rot, w: 2.6, len: 28, dur: d * 0.45 + 0.55, dmg: 22 });
       yield d * 0.45 + 0.65;
     }
   }
@@ -1073,11 +1085,20 @@ function pickTarget() {
   return best;
 }
 
+// Up to CFG.mp.maxTargets[key] living hunters for a targeted move: the boss's current target first, then others at random
+function pickTargets(key) {
+  const max = CFG.mp.maxTargets[key] || 1, first = B.tgt.hp > 0 ? [B.tgt] : [];
+  const rest = huntersAlive().filter(h => h !== B.tgt);
+  for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
+  const out = first.concat(rest).slice(0, max);
+  return out.length ? out : [B.tgt];
+}
+
 function makeCtx(key, tag, primary) {
   return {
     tag, key, phase: B.phase, ts: CFG.phaseTimeScale[B.phase - 1] * lerp(CFG.ramp.teleSlow, 1, rampK()),
     learned: countersOn() ? Mind.p.learned : {},
-    tg: B.tgt, dist: Math.hypot(B.tgt.x - B.x, B.tgt.z - B.z),
+    tg: B.tgt, dist: Math.hypot(B.tgt.x - B.x, B.tgt.z - B.z), targets: () => pickTargets(key),
     tele: o => Tele.spawn(Object.assign({ tag, ability: key, owner: 'boss' }, o)),
     cast: (name, dur) => { if (primary) { B.castName = name; B.castT = 0; B.castDur = dur; } }
   };
