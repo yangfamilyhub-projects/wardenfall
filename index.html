@@ -811,7 +811,7 @@ const ABILITIES = {
         const d2 = 0.75 * c.ts; c.cast('Halo Burst', d2);
         c.tele({ shape: 'ring', x: B.x, z: B.z, rin: 6.5, r: 15, dur: d2, dmg: 26 }); yield d2;
       } else {
-        const d = 1.1 * c.ts; c.cast(this.name, d);
+        const d = 1.4 * c.ts; c.cast(this.name, d);
         c.tele({ shape: 'circle', x: B.x, z: B.z, r: 6.5, dur: d, dmg: 26 }); yield d;
       }
       B.animate('slam'); shake(0.35, 0.2); yield 0.4;
@@ -825,7 +825,7 @@ const ABILITIES = {
         const d = 1.3 * c.ts; c.cast(this.name, d);
         const t = c.tele({ shape: 'ring', x: B.x, z: B.z, rin: 5, r: 14, dur: d, dmg: 24 });
         yield d * 0.5; t.cancel();
-        const d2 = 0.65 * c.ts; c.cast('Seismic Slam', d2);
+        const d2 = 0.95 * c.ts; c.cast('Seismic Slam', d2);
         c.tele({ shape: 'circle', x: B.x, z: B.z, r: 7, dur: d2, dmg: 24 }); yield d2;
       } else {
         const d = 1.3 * c.ts; c.cast(this.name, d);
@@ -928,7 +928,7 @@ const ABILITIES = {
       c.cast(this.name, d + 1.0); SFX.play('chain');
       c.tele({ shape: 'rect', x: B.x, z: B.z, rot, w: 2.4, len: Math.min(edgeLen(B.x, B.z, rot), dist + 3), dur: d, dmg: 6, pattern: 'pull', onHit: () => P.pullTo(B.x, B.z, 3.6) });
       yield d;
-      const sd = 0.95 * c.ts; c.cast('Seismic Slam', sd);
+      const sd = 1.35 * c.ts; c.cast('Seismic Slam', sd);   // you've just been dragged in: leave time to get out
       c.tele({ shape: 'circle', x: B.x, z: B.z, r: 6.5, dur: sd, dmg: 24 }); yield sd;
       B.animate('slam'); yield 0.4;
     }
@@ -939,9 +939,9 @@ const ABILITIES = {
       B.lockTurn = true;
       const reps = c.phase >= 3 ? 2 : 1;
       for (let i = 0; i < reps; i++) {
-        const d = 0.6 * c.ts; c.cast(this.name, d);
+        const d = 0.95 * c.ts; c.cast(this.name, d);
         c.tele({ shape: 'circle', x: B.x, z: B.z, r: 7, dur: d, dmg: 20 });
-        yield d; B.animate('spin'); yield 0.3;
+        yield d; B.animate('spin'); yield 0.5;
       }
     }
   },
