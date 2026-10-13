@@ -1069,19 +1069,19 @@ const ABILITIES = {
   },
   // Spatial counters: these aim at where you like to stand, not where you are
   sigils: {
-    name: 'Warding Sigils', learned: 'haunt', weight: () => Mind.nearSpot(7) ? 1 + Mind.focus * 2 : 0.15,
+    name: 'Warding Sigils', learned: 'haunt', weight: c => Mind.nearSpot(c.tg, 7) ? 1 + Mind.focus * 2 : 0.15,
     *run(c) {
       const spots = Mind.spots.slice(0, c.phase >= 2 ? 3 : 2), d = 1.5 * c.ts, gap = 0.35;
-      if (!spots.length) spots.push({ x: P.x, z: P.z });
+      if (!spots.length) spots.push({ x: c.tg.x, z: c.tg.z });
       c.cast(this.name, d + gap * (spots.length - 1));
       spots.forEach((s, i) => c.tele({ shape: 'circle', x: s.x, z: s.z, r: 5, dur: d + gap * i, dmg: 24 }));
       yield d + gap * (spots.length - 1); B.animate('slam'); yield 0.5;
     }
   },
   rim: {
-    name: 'Crumbling Rim', learned: 'rim', weight: () => Math.hypot(P.x, P.z) > R - 7 ? 1.8 + Mind.p.rim * 2 : 0.25,
+    name: 'Crumbling Rim', learned: 'rim', weight: c => Math.hypot(c.tg.x, c.tg.z) > R - 7 ? 1.8 + Mind.p.rim * 2 : 0.25,
     *run(c) {
-      const rot = Math.atan2(P.x, P.z), rin = R - 6.5, d = 1.25 * c.ts, d2 = 0.8 * d, all = c.phase >= 3;
+      const rot = Math.atan2(c.tg.x, c.tg.z), rin = R - 6.5, d = 1.25 * c.ts, d2 = 0.8 * d, all = c.phase >= 3;
       c.cast(this.name, d + (all ? d2 + 0.2 : 0));
       c.tele({ shape: 'arc', x: 0, z: 0, rot, rin, r: R, half: rad(70), dur: d, dmg: 24 });
       if (all) {   // phase 3: the rest of the rim goes too, so you can't slide along the edge
@@ -1170,7 +1170,7 @@ const ENCOUNTERS = [
 ];
 let ENC = ENCOUNTERS[0];
 function simpleChoose() {
-  const c = { dist: Math.hypot(B.tgt.x - B.x, B.tgt.z - B.z), phase: B.phase }, pool = [];
+  const c = { tg: B.tgt, dist: Math.hypot(B.tgt.x - B.x, B.tgt.z - B.z), phase: B.phase }, pool = [];
   let sum = 0;
   for (const k in ENC.abilities) {
     let w = ENC.abilities[k].weight(c);
@@ -1406,7 +1406,7 @@ const Mind = {
     }
     this.spots = out; this.focus = out.length ? out[0].share : 0;
   },
-  nearSpot(r) { return this.spots.some(s => Math.hypot(P.x - s.x, P.z - s.z) < r); },
+  nearSpot(h, r) { return this.spots.some(s => Math.hypot(h.x - s.x, h.z - s.z) < r); },
   onDash(dx, dz) {
     const p = this.p, bx = B.x - P.x, bz = B.z - P.z, bl = Math.hypot(bx, bz) || 1;
     const lat = Math.abs(dx * (bz / bl) - dz * (bx / bl));
@@ -1422,7 +1422,7 @@ const Mind = {
     toast('The Warden adapts', TRAITS[k].msg, 'var(--air)'); SFX.play('adapt'); this.save();
   },
   pool() {
-    const p = this.p, dist = Math.hypot(B.tgt.x - B.x, B.tgt.z - B.z), c = { dist, phase: B.phase };
+    const p = this.p, dist = Math.hypot(B.tgt.x - B.x, B.tgt.z - B.z), c = { tg: B.tgt, dist, phase: B.phase };
     const out = [];
     for (const k in ABILITIES) {
       const a = ABILITIES[k];
