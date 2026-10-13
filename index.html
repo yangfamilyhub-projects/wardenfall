@@ -110,6 +110,7 @@ body:not(.fighting) #pad, body:not(.fighting) #top, body:not(.fighting) #mind{vi
 .dn.taken{color:var(--enemy);font-size:19px}
 
 /* ---------- screens ---------- */
+[hidden]{display:none!important}
 .screen{position:fixed;inset:0;z-index:20;display:flex;padding:calc(env(safe-area-inset-top,0px) + 20px) 16px calc(env(safe-area-inset-bottom,0px) + 20px);background:radial-gradient(ellipse at 50% 25%,rgba(46,30,104,.78),rgba(8,6,20,.95) 72%);overflow:auto;touch-action:pan-y}
 .card{width:min(580px,100%);display:grid;gap:20px;margin:auto}
 .title{font-family:var(--f-display);font-weight:400;font-size:clamp(42px,12vw,80px);line-height:.92;margin:0;letter-spacing:.01em;text-wrap:balance}
