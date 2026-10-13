@@ -74,6 +74,8 @@ button:focus-visible{outline:2px solid var(--ally);outline-offset:2px}
 .odd b{font-weight:600;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
 .odd .ob{grid-column:1/-1;height:3px;background:rgba(255,255,255,.08)}
 .odd .ob i{display:block;height:100%;background:var(--boss)}
+.heatwrap{display:flex;gap:10px;align-items:center;color:var(--muted);font-size:11px;line-height:1.35}
+.heatwrap canvas{width:88px;height:88px;flex:none}
 .mlog{display:grid;gap:4px;color:var(--ink)}
 .mlog div{border-left:2px solid var(--air);padding-left:6px;line-height:1.35}
 
@@ -199,6 +201,7 @@ body.guest #mindBtn,body.guest #mind{display:none!important}
 <aside id="mind" aria-label="Boss mind">
   <div><h4>Warden's read on you</h4><div class="sub" id="mindMeta">0 fights remembered</div></div>
   <div id="mindTraits" style="display:grid;gap:7px"></div>
+  <div class="heatwrap"><canvas id="mindHeat" width="176" height="176" aria-hidden="true"></canvas><div><div class="sub">Where you stand</div>Dashed circles are the ground it will mark.</div></div>
   <div><div class="sub">Learned counters</div><div class="chips" id="mindChips"></div></div>
   <div id="mindOddsWrap"><div class="sub">Next move odds</div><div class="odds" id="mindOdds"></div></div>
   <div class="mlog" id="mindLog"></div>
@@ -563,9 +566,9 @@ const SM = (() => {
 
 /* =====================================================================
    TELEGRAPHS: one shader draws every shape, fills outward as it charges.
-   Shapes: circle, ring (donut), cone, rect (line). Forward is local +z.
+   Shapes: circle, ring (donut), cone, rect (line), arc (a slice of a ring). Forward is local +z.
    ===================================================================== */
-const SHAPE_ID = { circle: 0, ring: 1, cone: 2, rect: 3 };
+const SHAPE_ID = { circle: 0, ring: 1, cone: 2, rect: 3, arc: 4 };
 const COLORS = { enemy: new THREE.Color(0xff3d52), ground: new THREE.Color(0xffb02e), air: new THREE.Color(0xe04bff), ally: new THREE.Color(0x3fb8ff), safe: new THREE.Color(0x49f2a8) };
 const teleBaseMat = new THREE.ShaderMaterial({
   transparent: true, depthWrite: false,
@@ -588,6 +591,7 @@ const teleBaseMat = new THREE.ShaderMaterial({
       if (uShape == 0) { inside = step(d, uR); edge = uR - d; along = d / uR; }
       else if (uShape == 1) { inside = step(uRin, d) * step(d, uR); edge = min(d - uRin, uR - d); along = (d - uRin) / max(uR - uRin, 0.001); }
       else if (uShape == 2) { float a = abs(atan(p.x, p.y)); inside = step(d, uR) * step(a, uHalf); edge = min(uR - d, (uHalf - a) * d); along = d / uR; }
+      else if (uShape == 4) { float a = abs(atan(p.x, p.y)); inside = step(uRin, d) * step(d, uR) * step(a, uHalf); edge = min(min(d - uRin, uR - d), (uHalf - a) * d); along = (d - uRin) / max(uR - uRin, 0.001); }
       else { inside = step(abs(p.x), uW*0.5) * step(0.0, p.y) * step(p.y, uL); edge = min(uW*0.5 - abs(p.x), min(p.y, uL - p.y)); along = p.y / uL; }
       if (inside < 0.5) discard;
       float border = 1.0 - smoothstep(0.07, 0.17, edge);
@@ -631,6 +635,7 @@ function teleContains(t, px, pz) {
     case 'circle': return d <= t.r;
     case 'ring': return d >= t.rin && d <= t.r;
     case 'cone': return d <= t.r && Math.abs(Math.atan2(lx, lz)) <= t.half;
+    case 'arc': return d >= t.rin && d <= t.r && Math.abs(Math.atan2(lx, lz)) <= t.half;
     case 'rect': return Math.abs(lx) <= t.w / 2 && lz >= 0 && lz <= t.len;
   }
   return false;
@@ -896,9 +901,13 @@ const ABILITIES = {
     name: 'Rending Cleave', weight: c => c.dist < 9 ? 1.5 : 0.25,
     *run(c) {
       yield 0.12; B.lockTurn = true;
-      const d = 0.95 * c.ts; c.cast(this.name, d);
+      const d = 0.95 * c.ts, back = c.learned.rear; c.cast(this.name, d + (back ? 0.45 : 0));
       c.tele({ shape: 'cone', x: B.x, z: B.z, rot: B.facing, r: 9.5, half: rad(60), dur: d, dmg: 22 });
-      yield d; B.animate('swing'); yield 0.35;
+      // learned: the swing carries round behind it, a beat after the front lands
+      if (back) c.tele({ shape: 'cone', x: B.x, z: B.z, rot: B.facing + Math.PI, r: 8, half: rad(65), dur: d + 0.45, dmg: 22 });
+      yield d; B.animate('swing');
+      if (back) { yield 0.45; B.animate('swing'); }
+      yield 0.35;
     }
   },
   slam: {
@@ -1056,6 +1065,30 @@ const ABILITIES = {
       yield d * 0.55;
       c.tele({ shape: 'rect', x: px - dx * 14, z: pz - dz * 14, rot, w: 2.6, len: 28, dur: d * 0.45 + 0.55, dmg: 22 });
       yield d * 0.45 + 0.65;
+    }
+  },
+  // Spatial counters: these aim at where you like to stand, not where you are
+  sigils: {
+    name: 'Warding Sigils', learned: 'haunt', weight: () => Mind.nearSpot(7) ? 1 + Mind.focus * 2 : 0.15,
+    *run(c) {
+      const spots = Mind.spots.slice(0, c.phase >= 2 ? 3 : 2), d = 1.5 * c.ts, gap = 0.35;
+      if (!spots.length) spots.push({ x: P.x, z: P.z });
+      c.cast(this.name, d + gap * (spots.length - 1));
+      spots.forEach((s, i) => c.tele({ shape: 'circle', x: s.x, z: s.z, r: 5, dur: d + gap * i, dmg: 24 }));
+      yield d + gap * (spots.length - 1); B.animate('slam'); yield 0.5;
+    }
+  },
+  rim: {
+    name: 'Crumbling Rim', learned: 'rim', weight: () => Math.hypot(P.x, P.z) > R - 7 ? 1.8 + Mind.p.rim * 2 : 0.25,
+    *run(c) {
+      const rot = Math.atan2(P.x, P.z), rin = R - 6.5, d = 1.25 * c.ts, d2 = 0.8 * d, all = c.phase >= 3;
+      c.cast(this.name, d + (all ? d2 + 0.2 : 0));
+      c.tele({ shape: 'arc', x: 0, z: 0, rot, rin, r: R, half: rad(70), dur: d, dmg: 24 });
+      if (all) {   // phase 3: the rest of the rim goes too, so you can't slide along the edge
+        yield d + 0.2; shake(0.3, 0.25);
+        c.tele({ shape: 'arc', x: 0, z: 0, rot: rot + Math.PI, rin, r: R, half: rad(110), dur: d2, dmg: 24 }); yield d2;
+      } else yield d;
+      shake(0.3, 0.25); B.animate('slam'); yield 0.45;
     }
   }
 };
@@ -1300,23 +1333,34 @@ const TRAITS = {
   spin:    { ability: 'Whirling Rend', test: p => p.range < 4.6, msg: 'You hug its legs. It learned to spin.' },
   feint:   { ability: 'Feints', test: p => p.timingN >= 4 && p.timing < 0.45, msg: 'You dodge early. It started bluffing its slams.' },
   echo:    { ability: 'Echo Strikes', test: p => p.timingN >= 4 && p.timing > 0.8, msg: 'You dodge at the last instant. It now strikes where you land.' },
-  pincer:  { ability: 'Pincer Rails', test: p => p.dashN >= 5 && p.lateral > 0.68, msg: 'You sidestep every time. It walls off your flanks.' }
+  pincer:  { ability: 'Pincer Rails', test: p => p.dashN >= 5 && p.lateral > 0.68, msg: 'You sidestep every time. It walls off your flanks.' },
+  haunt:   { ability: 'Warding Sigils', test: () => Mind.heatTotal >= 20 && Mind.focus > 0.38, msg: 'You keep coming back to the same ground. It now marks your favourite spots.' },
+  rim:     { ability: 'Crumbling Rim', test: p => p.rim > 0.3, msg: 'You hug the edge of the arena. It learned to crumble the rim.' },
+  rear:    { ability: 'Backhand Rend', test: p => p.rear > 0.35, msg: 'You slip behind it while it swings. Its cleave now carries round.' }
 };
+// Where you stand: decayed seconds spent in each 3m cell of the arena. Persists with the rest of the Mind.
+const HEAT = { cell: 3, n: Math.ceil(2 * R / 3), tau: 60 };
+const heatIdx = (x, z) => clamp(Math.floor((z + R) / HEAT.cell), 0, HEAT.n - 1) * HEAT.n + clamp(Math.floor((x + R) / HEAT.cell), 0, HEAT.n - 1);
+const heatC = i => -R + (i + 0.5) * HEAT.cell;   // cell centre, for a row or column index
 const MIND_KEY = 'wardenfall.mind.v1';
-const NEUTRAL = { range: 8, air: 0.08, lateral: 0.5, timing: 0.6 };
+const NEUTRAL = { range: 8, air: 0.08, lateral: 0.5, timing: 0.6, rim: 0.1, rear: 0.15 };
 const Mind = {
-  p: null, obs: 0, checkT: 0, odds: [], log: [], learnedThisFight: [],
+  p: null, obs: 0, checkT: 0, odds: [], log: [], learnedThisFight: [], spots: [], focus: 0, heatTotal: 0,
   load(from) {
     const s = from || store.get(MIND_KEY);
-    this.p = Object.assign({ range: NEUTRAL.range, air: NEUTRAL.air, lateral: NEUTRAL.lateral, timing: NEUTRAL.timing, timingN: 0, dashN: 0, hit: {}, learned: {}, fights: 0, wins: 0, losses: 0 }, s || {});
+    this.p = Object.assign({ range: NEUTRAL.range, air: NEUTRAL.air, lateral: NEUTRAL.lateral, timing: NEUTRAL.timing, rim: NEUTRAL.rim, rear: NEUTRAL.rear, timingN: 0, dashN: 0, hit: {}, learned: {}, fights: 0, wins: 0, losses: 0 }, s || {});
     this.p.hit = Object.assign({}, this.p.hit); this.p.learned = Object.assign({}, this.p.learned);
+    const h = this.p.heat; this.p.heat = Array.isArray(h) && h.length === HEAT.n * HEAT.n ? h.slice() : new Array(HEAT.n * HEAT.n).fill(0);
+    this.findSpots();
   },
-  save() { store.set(MIND_KEY, this.p); },
+  save() { store.set(MIND_KEY, Object.assign({}, this.p, { heat: this.p.heat.map(v => Math.round(v * 10) / 10) })); },
   wipe() { store.set(MIND_KEY, null); this.load({}); this.log = []; },
   // Once per attempt: a new run, or a retry. Advancing a level keeps the profile as level 1 left it.
   beginFight() {
     const p = this.p;
     for (const k in NEUTRAL) p[k] = lerp(p[k], NEUTRAL[k], 0.25);   // memory fades a little between fights
+    for (let i = 0; i < p.heat.length; i++) p.heat[i] *= 0.6;
+    this.findSpots();
     this.learnedThisFight = []; this.log = [];
     const known = Object.keys(p.learned).filter(k => p.learned[k]);
     if (known.length) this.log.push('Remembers: ' + known.map(k => TRAITS[k].ability).join(', '));
@@ -1327,12 +1371,42 @@ const Mind = {
     const dist = Math.hypot(P.x - B.x, P.z - B.z);
     p.range += (dist - p.range) * Math.min(1, dt / 6);
     p.air += ((P.y > CFG.player.airborneAt ? 1 : 0) - p.air) * Math.min(1, dt / 10);
+    p.rim += ((Math.hypot(P.x, P.z) > R - 5 ? 1 : 0) - p.rim) * Math.min(1, dt / 12);
+    // behind it, but only while it's committed to a cast and can't turn to face you
+    if (B.lockTurn && dist < 10) {
+      const behind = (Math.sin(B.facing) * (P.x - B.x) + Math.cos(B.facing) * (P.z - B.z)) / (dist || 1) < -0.3;
+      p.rear += ((behind ? 1 : 0) - p.rear) * Math.min(1, dt / 8);
+    }
+    const h = p.heat, fade = Math.exp(-dt / HEAT.tau);
+    for (let i = 0; i < h.length; i++) h[i] *= fade;
+    h[heatIdx(P.x, P.z)] += dt;
     this.checkT -= dt;
-    if (ENC.learns && this.checkT <= 0 && this.obs > 10) {
-      this.checkT = 1;
-      for (const k in TRAITS) if (!p.learned[k] && TRAITS[k].test(p)) this.unlock(k);
+    if (this.checkT <= 0) {
+      this.checkT = 1; this.findSpots();
+      if (ENC.learns && this.obs > 10) for (const k in TRAITS) if (!p.learned[k] && TRAITS[k].test(p)) this.unlock(k);
     }
   },
+  // Up to three favourite spots: the heat-weighted centre of the hottest 3x3-cell windows, kept well apart.
+  findSpots() {
+    const h = this.p.heat, N = HEAT.n, cand = [];
+    let total = 0; for (const v of h) total += v;
+    this.heatTotal = total;
+    if (total > 1) for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+      let s = 0, sx = 0, sz = 0;
+      for (let a = Math.max(0, i - 1); a <= Math.min(N - 1, i + 1); a++) for (let b = Math.max(0, j - 1); b <= Math.min(N - 1, j + 1); b++) {
+        const v = h[a * N + b]; s += v; sx += v * heatC(b); sz += v * heatC(a);
+      }
+      if (s > 0) cand.push({ x: sx / s, z: sz / s, share: s / total });
+    }
+    cand.sort((a, b) => b.share - a.share);
+    const out = [];
+    for (const c of cand) {
+      if (out.length >= 3 || (out.length && c.share < 0.1)) break;
+      if (!out.some(o => Math.hypot(o.x - c.x, o.z - c.z) < 11)) { clampArena(c, 2); out.push(c); }
+    }
+    this.spots = out; this.focus = out.length ? out[0].share : 0;
+  },
+  nearSpot(r) { return this.spots.some(s => Math.hypot(P.x - s.x, P.z - s.z) < r); },
   onDash(dx, dz) {
     const p = this.p, bx = B.x - P.x, bz = B.z - P.z, bl = Math.hypot(bx, bz) || 1;
     const lat = Math.abs(dx * (bz / bl) - dz * (bx / bl));
@@ -1540,6 +1614,29 @@ function setupBossHud() {
 }
 let mindOpen = true, mindT = 0;
 function setMind(on) { mindOpen = on; $('#mind').hidden = !on; $('#mindBtn').setAttribute('aria-pressed', String(on)); Ptr.box = null; }
+// Mini map of the heat grid, with the spots Warding Sigils would mark
+const heatCv = $('#mindHeat'), heatG = heatCv.getContext('2d');
+heatG.scale(heatCv.width / 88, heatCv.width / 88);   // drawn at 2x so it stays sharp on dense screens
+function drawHeat() {
+  const W = 88, k = W / (2 * R), h = Mind.p.heat, N = HEAT.n;
+  let max = 0; for (const v of h) max = Math.max(max, v);
+  heatG.clearRect(0, 0, W, W);
+  heatG.save(); heatG.beginPath(); heatG.arc(W / 2, W / 2, W / 2 - 1, 0, Math.PI * 2); heatG.clip();
+  heatG.fillStyle = 'rgba(255,255,255,.05)'; heatG.fillRect(0, 0, W, W);
+  if (max > 0) for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) {
+    const v = h[i * N + j] / max; if (v < 0.03) continue;
+    heatG.fillStyle = `rgba(224,75,255,${(v * 0.85).toFixed(2)})`;
+    heatG.fillRect((heatC(j) - HEAT.cell / 2 + R) * k, (heatC(i) - HEAT.cell / 2 + R) * k, HEAT.cell * k + 0.5, HEAT.cell * k + 0.5);
+  }
+  heatG.restore();
+  heatG.strokeStyle = 'rgba(170,160,255,.35)'; heatG.lineWidth = 1;
+  heatG.beginPath(); heatG.arc(W / 2, W / 2, W / 2 - 1, 0, Math.PI * 2); heatG.stroke();
+  heatG.strokeStyle = '#ff3d52'; heatG.setLineDash([3, 2]);
+  for (const s of Mind.spots) { heatG.beginPath(); heatG.arc((s.x + R) * k, (s.z + R) * k, 5 * k, 0, Math.PI * 2); heatG.stroke(); }
+  heatG.setLineDash([]);
+  const dot = (x, z, r, c) => { heatG.fillStyle = c; heatG.beginPath(); heatG.arc((x + R) * k, (z + R) * k, r, 0, Math.PI * 2); heatG.fill(); };
+  if (state === 'fight' || state === 'ending') { dot(B.x, B.z, 3, '#ff6a3d'); dot(P.x, P.z, 2.5, '#3fb8ff'); }
+}
 function renderMind() {
   const p = Mind.p;
   $('#mindMeta').textContent = `${p.fights} fight${p.fights === 1 ? '' : 's'} remembered · ${p.wins}W ${p.losses}L`;
@@ -1548,9 +1645,13 @@ function renderMind() {
     ['Distance', p.range.toFixed(1) + ' m', clamp(p.range / 16, 0, 1)],
     ['Air time', Math.round(p.air * 100) + '%', clamp(p.air / 0.4, 0, 1)],
     ['Dodge timing', timingLabel, p.timingN < 3 ? 0 : clamp(p.timing, 0, 1)],
-    ['Sidestep dashes', Math.round(p.lateral * 100) + '%', clamp(p.lateral, 0, 1)]
+    ['Sidestep dashes', Math.round(p.lateral * 100) + '%', clamp(p.lateral, 0, 1)],
+    ['Favourite ground', Math.round(Mind.focus * 100) + '%', clamp(Mind.focus / 0.5, 0, 1)],
+    ['On the rim', Math.round(p.rim * 100) + '%', clamp(p.rim / 0.4, 0, 1)],
+    ['Behind it', Math.round(p.rear * 100) + '%', clamp(p.rear / 0.5, 0, 1)]
   ];
   $('#mindTraits').innerHTML = rows.map(r => `<div class="trait"><span>${r[0]}</span><em>${r[1]}</em><div class="tb"><i style="width:${(r[2] * 100).toFixed(0)}%"></i></div></div>`).join('');
+  drawHeat();
   $('#mindChips').innerHTML = Object.keys(TRAITS).map(k => `<span class="chip${p.learned[k] ? ' on' : ''}">${TRAITS[k].ability}</span>`).join('');
   $('#mindOddsWrap').hidden = !ENC.learns;
   if (!ENC.learns) { $('#mindLog').innerHTML = Mind.log.slice(0, 3).map(s => `<div>${s}</div>`).join(''); return; }
