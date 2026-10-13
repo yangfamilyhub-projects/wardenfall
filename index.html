@@ -180,7 +180,7 @@ body.guest #mindBtn,body.guest #mind{display:none!important}
 <div id="top">
   <div class="bossname"><b>The Warden</b><span id="bhpTxt">3360 / 3360</span></div>
   <div class="bar" style="height:16px"><i id="bhpLag"></i><i id="bhp"></i><span class="tick" style="left:66%"></span><span class="tick" style="left:33%"></span></div>
-  <div id="castrow" style="opacity:0"><span id="castname">Cast</span><div class="bar" id="castbar"><i id="cast"></i></div><div class="pips" id="pips"><i class="pip"></i><i class="pip"></i><i class="pip"></i></div></div>
+  <div id="castrow" style="opacity:0"><span id="castname">Cast</span><div class="bar" id="castbar"><i id="cast"></i></div><div class="pips" id="pips"><i class="pip"></i><i class="pip"></i><i class="pip"></i><i class="pip"></i><i class="pip"></i><i class="pip"></i></div></div>
   <div id="prow">
     <div id="pframe"><div class="bar" id="phpWrap"><i id="php"></i></div><span id="phpTxt">100</span><div class="dpips"><i class="dpip on"></i><i class="dpip on"></i></div></div>
     <div id="corner">
@@ -325,6 +325,7 @@ const CFG = {
   mp: {
     hpPerPlayer: 0.6,        // each hunter who joins adds this fraction of base boss HP
     maxTargets: { meteor: 3, skyward: 3, pincer: 2 },   // how many hunters a targeted move aims at in one cast
+    armorPerHunter: 1,       // extra Cataclysm armor pips for each living hunter beyond the first
     sendHz: 15,              // position + boss snapshots per second
     colors: [0xffd23f, 0x49f2a8, 0xff7ad9, 0xff9a3d]   // teammates (you are always blue)
   }
@@ -654,7 +655,7 @@ function resolveTele(t) {
       hit = teleContains(t, P.x, P.z) && layerHits(t.hits) && P.hp > 0;
       if (hit) { P.damage(t.dmg); if (t.pull) P.pullTo(B.x, B.z, t.pull); if (t.onHit) t.onHit(t); }
       else if (t.threatened) stats.dodges++;
-      if (t.ability && NET.role !== 'guest') Mind.onResolve(t.ability, hit);
+      if (t.ability) reportResolve(t.ability, hit, t.threatened);
       if (t.owner === 'boss') { SFX.play('resolve'); maybeEcho(t); }
     } else if (t.team === 'ally' && !B.dead) {
       if (teleHitsDisk(t, B.x, B.z, CFG.boss.radius * 0.9)) { hit = true; B.damage(t.dmg, t.armor); if (t.onHit) t.onHit(t); }
@@ -684,7 +685,7 @@ function updateWave(w, dt) {
       w.threatened = true;
       if (layerHits(w.hits) && P.hp > 0) { w.hit = true; P.damage(w.dmg); }
     }
-    if (inner > R + 1) { w.done = true; w.fade = 0.2; if (w.threatened && !w.hit) stats.dodges++; if (NET.role !== 'guest') Mind.onResolve(w.ability, w.hit); }
+    if (inner > R + 1) { w.done = true; w.fade = 0.2; if (w.threatened && !w.hit) stats.dodges++; reportResolve(w.ability, w.hit, w.threatened); }
   } else {
     w.fade -= dt; u.uAlpha.value = Math.max(0, w.fade / 0.2);
     if (w.fade <= 0) { disposeMesh(w.mesh); return true; }
@@ -770,7 +771,8 @@ function updatePlayer(dt) {
     if (mlen > 0.2) { dx = mx / mlen; dz = mz / mlen; } else { dx = -P.aimX; dz = -P.aimZ; }
     P.dashDx = dx; P.dashDz = dz; P.dashT = C.dashTime; P.dashCharges--; P.lastDashAt = clock;
     if (C.dashIFrames > 0) P.iframes = Math.max(P.iframes, C.dashIFrames);
-    stats.dashes++; if (NET.role !== 'guest') Mind.onDash(dx, dz); SFX.play('dash');
+    stats.dashes++; SFX.play('dash');
+    { const ds = Mind.dashSample(dx, dz); if (NET.role === 'guest') NET.toHost({ k: 'dash', lat: r2(ds.lat), th: r2(ds.th) }); else Mind.applyDash(ds); }
   }
 
   // --- jump / double jump ---
@@ -954,7 +956,8 @@ const ABILITIES = {
         if (pads.some(q => Math.hypot(q.x - p.x, q.z - p.z) < 8)) continue;
         pads.push(p);
       }
-      B.channel = true; B.channelTag = c.tag; B.armor = B.armorMax = c.phase >= 3 ? 3 : 2; B.lastChannelAt = B.time;
+      const extra = Math.max(0, huntersAlive().length - 1) * CFG.mp.armorPerHunter;   // more hunters, more Lunges and Bursts to break it
+      B.channel = true; B.channelTag = c.tag; B.armor = B.armorMax = (c.phase >= 3 ? 3 : 2) + extra; B.lastChannelAt = B.time;
       c.cast(this.name, d);
       c.tele({ shape: 'circle', x: 0, z: 0, r: R, dur: d, dmg: 55, safe: pads });
       for (const p of pads) c.tele({ shape: 'circle', team: 'safe', x: p.x, z: p.z, r: p.r, dur: d, visual: true });
@@ -1031,12 +1034,19 @@ const ABILITIES = {
 };
 
 // Echo: a learned modifier. If you dash right as a hit lands, it strikes where you end up.
+// Each hunter checks their own dash; guests ask the host, who owns the boss, to strike.
+let echoAskedAt = -9;
 function maybeEcho(t) {
-  if (NET.role === 'guest' || !Mind.p.learned.echo || !countersOn() || t.isEcho || B.dead || state !== 'fight') return;
-  if (B.time - B.lastEcho < 1.6 || clock - P.lastDashAt > 0.45 || Math.random() > 0.6) return;
-  B.lastEcho = B.time;
-  const o = { x: P.x + P.dashDx * 2.2, z: P.z + P.dashDz * 2.2 }; clampArena(o, 1);
-  Tele.spawn({ shape: 'circle', x: o.x, z: o.z, r: 3.2, dur: 0.55, dmg: 14, ability: 'echo', isEcho: true, owner: 'boss', tag: t.tag });
+  if (t.isEcho || B.dead || state !== 'fight' || P.hp <= 0 || clock - P.lastDashAt > 0.45) return;
+  const o = { x: P.x + P.dashDx * 2.2, z: P.z + P.dashDz * 2.2 };
+  if (NET.role !== 'guest') { spawnEcho(o, t.tag); return; }
+  if (clock - echoAskedAt > 0.5) { echoAskedAt = clock; NET.toHost({ k: 'echo', x: r2(o.x), z: r2(o.z) }); }
+}
+function spawnEcho(o, tag) {
+  if (!Mind.p.learned.echo || !countersOn() || B.dead || state !== 'fight') return;
+  if (B.time - B.lastEcho < 1.6 || Math.random() > 0.6) return;
+  B.lastEcho = B.time; clampArena(o, 1);
+  Tele.spawn({ shape: 'circle', x: o.x, z: o.z, r: 3.2, dur: 0.55, dmg: 14, ability: 'echo', isEcho: true, owner: 'boss', tag });
 }
 
 B.animate = function (k) { B.anim = k; B.animT = 0; B.animSeq++; };
@@ -1092,6 +1102,14 @@ function pickTargets(key) {
   for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
   const out = first.concat(rest).slice(0, max);
   return out.length ? out : [B.tgt];
+}
+
+// How often each move lands feeds the Warden's choices. In a group only the hunters a telegraph
+// actually threatened count it, so stars aimed at a teammate don't read as misses on you.
+function reportResolve(key, hit, threatened) {
+  if (!NET.live()) { if (NET.role !== 'guest') Mind.onResolve(key, hit); return; }
+  if (!hit && !threatened) return;
+  if (NET.role === 'guest') NET.toHost({ k: 'res', a: key, h: hit ? 1 : 0 }); else Mind.onResolve(key, hit);
 }
 
 function makeCtx(key, tag, primary) {
@@ -1212,28 +1230,34 @@ const Mind = {
   },
   tick(dt) {
     const p = this.p; this.obs += dt;
-    const dist = Math.hypot(P.x - B.x, P.z - B.z);
-    p.range += (dist - p.range) * Math.min(1, dt / 6);
-    p.air += ((P.y > CFG.player.airborneAt ? 1 : 0) - p.air) * Math.min(1, dt / 10);
+    const hs = huntersAlive(), w = dt / Math.max(1, hs.length);   // in a group it reads the whole party, each hunter weighted equally
+    for (const h of hs) {
+      p.range += (Math.hypot(h.x - B.x, h.z - B.z) - p.range) * Math.min(1, w / 6);
+      p.air += ((h.y > CFG.player.airborneAt ? 1 : 0) - p.air) * Math.min(1, w / 10);
+    }
     this.checkT -= dt;
     if (this.checkT <= 0 && this.obs > 10) {
       this.checkT = 1;
       for (const k in TRAITS) if (!p.learned[k] && TRAITS[k].test(p)) this.unlock(k);
     }
   },
-  onDash(dx, dz) {
-    const p = this.p, bx = B.x - P.x, bz = B.z - P.z, bl = Math.hypot(bx, bz) || 1;
-    const lat = Math.abs(dx * (bz / bl) - dz * (bx / bl));
-    p.lateral += (lat - p.lateral) * 0.2; p.dashN++;
-    let threat = -1;
-    for (const t of Tele.list) if (t.team === 'enemy' && !t.resolved && !t.visual && teleContains(t, P.x, P.z)) threat = Math.max(threat, t.prog);
-    if (threat >= 0) { p.timing += (threat - p.timing) * 0.25; p.timingN++; }
+  // Measured by whoever dashed (guests send it to the host): how sideways the dash was, and how full the telegraph they fled was (-1: none)
+  dashSample(dx, dz) {
+    const bx = B.x - P.x, bz = B.z - P.z, bl = Math.hypot(bx, bz) || 1;
+    let th = -1;
+    for (const t of Tele.list) if (t.team === 'enemy' && !t.resolved && !t.visual && teleContains(t, P.x, P.z)) th = Math.max(th, t.prog);
+    return { lat: Math.abs(dx * (bz / bl) - dz * (bx / bl)), th };
+  },
+  applyDash(s) {
+    const p = this.p;
+    p.lateral += (s.lat - p.lateral) * 0.2; p.dashN++;
+    if (s.th >= 0) { p.timing += (s.th - p.timing) * 0.25; p.timingN++; }
   },
   onResolve(key, hit) { const h = this.p.hit; h[key] = (h[key] == null ? 0.5 : h[key]) * 0.8 + (hit ? 0.2 : 0); },
   unlock(k) {
     this.p.learned[k] = true; this.learnedThisFight.push(k);
     this.log.unshift(TRAITS[k].msg); this.log.length = Math.min(this.log.length, 4);
-    toast('The Warden adapts', TRAITS[k].msg, 'var(--air)'); SFX.play('adapt'); this.save();
+    toast('The Warden adapts', TRAITS[k].msg, 'var(--air)', true); SFX.play('adapt'); this.save();
   },
   pool() {
     const p = this.p, dist = Math.hypot(B.tgt.x - B.x, B.tgt.z - B.z), c = { dist, phase: B.phase };
@@ -1424,6 +1448,7 @@ let mindOpen = true, mindT = 0;
 function setMind(on) { mindOpen = on; $('#mind').hidden = !on; $('#mindBtn').setAttribute('aria-pressed', String(on)); Ptr.box = null; }
 function renderMind() {
   const p = Mind.p;
+  $('#mind h4').textContent = NET.live() ? 'Warden\u2019s read on your party' : 'Warden\u2019s read on you';
   $('#mindMeta').textContent = `${p.fights} fight${p.fights === 1 ? '' : 's'} remembered · ${p.wins}W ${p.losses}L`;
   const timingLabel = p.timingN < 3 ? 'reading' : p.timing < 0.5 ? 'early' : p.timing > 0.75 ? 'late' : 'mid';
   const rows = [
@@ -1456,7 +1481,7 @@ const NET = {
   ws: null, role: 'solo',          // 'solo' | 'host' | 'guest' for the current fight
   you: null, hostId: null, peers: new Map(),
   teleSeq: 0, teles: new Map(), snap: null, sendT: 0, metaT: 0, partyKey: '',
-  lobby: false, pendingJoin: null, mindWas: null,
+  lobby: false, pendingJoin: null, mindWas: null, endLearned: null,
   grouped: false,                  // someone else took part in this fight
   name() { return (store.get(NAME_KEY) || '').trim() || 'Hunter'; },
   url() { return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/mp'; },
@@ -1481,7 +1506,7 @@ const NET = {
 
   // Forget the network side of the last fight (keeps no socket open)
   reset() {
-    this.close(); this.role = 'solo'; this.you = this.hostId = null; this.snap = null; this.lobby = false; this.pendingJoin = null; this.grouped = false;
+    this.close(); this.role = 'solo'; this.you = this.hostId = null; this.snap = null; this.lobby = false; this.pendingJoin = null; this.grouped = false; this.endLearned = null;
     for (const p of this.peers.values()) this.dropPeer(p);
     this.peers.clear(); this.teles.clear(); document.body.classList.remove('guest'); this.renderParty();
     if (this.mindWas != null) { setMind(this.mindWas); this.mindWas = null; }
@@ -1555,6 +1580,15 @@ const NET = {
       case 'hit':   // guest -> host
         if (this.role === 'host' && state === 'fight' && p) B.damage(clamp(+d.dmg || 0, 0, 200), clamp(+d.armor || 0, 0, 1), true);
         break;
+      case 'dash':   // guest -> host: feeds the Warden's read on the party
+        if (this.role === 'host' && state === 'fight' && p) Mind.applyDash({ lat: clamp(+d.lat || 0, 0, 1), th: clamp(Number.isFinite(+d.th) ? +d.th : -1, -1, 1) });
+        break;
+      case 'res':
+        if (this.role === 'host' && state === 'fight' && p && (Object.prototype.hasOwnProperty.call(ABILITIES, d.a) || d.a === 'echo')) Mind.onResolve(d.a, !!d.h);
+        break;
+      case 'echo':
+        if (this.role === 'host' && state === 'fight' && p && p.hp > 0) spawnEcho({ x: clamp(+d.x || 0, -R, R), z: clamp(+d.z || 0, -R, R) }, null);
+        break;
       // host -> guests
       case 'init': if (this.role === 'guest' && from === this.hostId) startGuestFight(d); break;
       case 'snap': if (this.role === 'guest' && from === this.hostId) this.applySnap(d.b); break;
@@ -1562,7 +1596,12 @@ const NET = {
       case 'cancel': { const t = this.teles.get(d.id); if (t) { t.cancel(); this.teles.delete(d.id); } break; }
       case 'wave': if (this.role === 'guest' && state === 'fight') spawnWave(Object.assign(d.o, { net: true })); break;
       case 'toast': if (this.role === 'guest') toast(d.a[0], d.a[1], d.a[2]); break;
-      case 'end': if (this.role === 'guest' && from === this.hostId) endFight(!!d.won); break;
+      case 'end':
+        if (this.role === 'guest' && from === this.hostId) {
+          this.endLearned = (Array.isArray(d.learned) ? d.learned : []).filter(k => Object.prototype.hasOwnProperty.call(TRAITS, k));
+          endFight(!!d.won);
+        }
+        break;
     }
   },
   onMe(p, d) {
@@ -1729,7 +1768,7 @@ function onDown() {
 function endFight(won, why) {
   if (state !== 'fight') return;
   state = 'ending'; endT = won ? 1.8 : 1.4;
-  if (NET.role === 'host') { NET.toAll({ k: 'end', won }); NET.leave(); }
+  if (NET.role === 'host') { NET.toAll({ k: 'end', won, learned: Mind.learnedThisFight }); NET.leave(); }
   else if (NET.role === 'guest') {
     NET.leave();
     if (won) { B.dead = true; B.runners = []; B.castName = ''; }
@@ -1748,7 +1787,10 @@ function showEnd(won, why) {
   const cells = [[`${mm}:${ss}`, 'Time'], [stats.dealt, 'Damage dealt'], [stats.hitsTaken, 'Hits taken'], [stats.dodges, 'Telegraphs dodged'], [stats.interrupts, 'Interrupts'], [won ? `${Math.ceil(P.hp)} hp` : `${Math.round(100 - B.hp / B.max * 100)}%`, won ? 'Health left' : 'Boss damaged']];
   $('#endStats').innerHTML = cells.map(c => `<div class="stat"><b>${c[0]}</b><span>${c[1]}</span></div>`).join('');
   if (NET.role === 'guest') {
-    $('#endLearned').innerHTML = '<div>The Warden studies whoever opened the fight. Start your own to teach it about you.</div>';
+    const lines = (NET.endLearned || []).map(k => TRAITS[k].msg);
+    if (!lines.length) lines.push(NET.endLearned ? 'Nothing new this fight.' : 'The fight closed before it could tell you.');
+    lines.push('It learned from your whole party, but remembers it in the host\u2019s browser. Start your own fight to see its read on you.');
+    $('#endLearned').innerHTML = lines.map(s => `<div>${s}</div>`).join('');
     return;
   }
   const lines = Mind.learnedThisFight.map(k => TRAITS[k].msg);
