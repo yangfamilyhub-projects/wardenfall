@@ -1,0 +1,20 @@
+# Wardenfall multiplayer relay (server/relay.js). One instance serves prod and every slot;
+# rooms are kept apart by site. Install: see docs/hosting.md "Multiplayer relay".
+[Unit]
+Description=Wardenfall multiplayer relay
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/node /opt/wardenfall-relay/relay.js
+Environment=PORT=3410 BIND=127.0.0.1
+Restart=always
+RestartSec=2
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+MemoryMax=200M
+
+[Install]
+WantedBy=multi-user.target
