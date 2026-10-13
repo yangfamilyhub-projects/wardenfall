@@ -155,7 +155,7 @@ body:not(.fighting) #pad, body:not(.fighting) #top, body:not(.fighting) #mind{vi
 <div id="dmg"></div>
 
 <div id="top">
-  <div class="bossname"><b>The Warden</b><span id="bhpTxt">4200 / 4200</span></div>
+  <div class="bossname"><b>The Warden</b><span id="bhpTxt">3360 / 3360</span></div>
   <div class="bar" style="height:16px"><i id="bhpLag"></i><i id="bhp"></i><span class="tick" style="left:66%"></span><span class="tick" style="left:33%"></span></div>
   <div id="castrow" style="opacity:0"><span id="castname">Cast</span><div class="bar" id="castbar"><i id="cast"></i></div><div class="pips" id="pips"><i class="pip"></i><i class="pip"></i><i class="pip"></i></div></div>
   <div id="prow">
@@ -263,14 +263,14 @@ const CFG = {
     hitIFrames: 0.4,
     airborneAt: 0.35         // height above which you count as "in the air"
   },
-  boss: { hp: 4200, radius: 2.1, height: 3.9, walkSpeed: 3.4, idealRange: 4.5, recover: [0.55, 1.1], exposedTime: 4 },
+  boss: { hp: 3360, radius: 2.1, height: 3.9, walkSpeed: 3.4, idealRange: 4.5, recover: [0.65, 1.25], exposedTime: 4 },
   skills: {
     slash: { cd: 0.42, dmg: 32, r: 4.4, angle: 110, tele: 0.12 },
     lunge: { cd: 5, dmg: 70, len: 9, w: 2.2, tele: 0.16, travel: 0.2, armor: 1 },
     burst: { cd: 9, dmg: 150, r: 5.2, tele: 0.6, armor: 1, moveMult: 0.55 }
   },
   phaseAt: [0.66, 0.33],
-  phaseTimeScale: [1, 0.92, 0.8],
+  phaseTimeScale: [1.15, 1.06, 0.92],
   // Warm-up: the fight eases from gentle to full strength over `time` seconds
   ramp: {
     time: 90,                // seconds until the Warden is at full strength
