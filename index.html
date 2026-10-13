@@ -150,6 +150,7 @@ body:not(.fighting) #pad, body:not(.fighting) #top, body:not(.fighting) #mind{vi
 .stat span{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
 .learned{display:grid;gap:6px;font-size:14px;line-height:1.4}
 .learned div{border-left:3px solid var(--air);padding-left:10px}
+.kicker{font-size:12px;font-weight:800;letter-spacing:.18em;text-transform:uppercase;color:var(--boss);margin-bottom:8px}
 .endtitle{font-family:var(--f-display);font-weight:400;font-size:clamp(34px,9vw,58px);margin:0;line-height:1}
 .cta.alt{background:var(--safe)}
 .namef{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase}
@@ -178,8 +179,8 @@ body.guest #mindBtn,body.guest #mind{display:none!important}
 <div id="dmg"></div>
 
 <div id="top">
-  <div class="bossname"><b>The Warden</b><span id="bhpTxt">3360 / 3360</span></div>
-  <div class="bar" style="height:16px"><i id="bhpLag"></i><i id="bhp"></i><span class="tick" style="left:66%"></span><span class="tick" style="left:33%"></span></div>
+  <div class="bossname"><b id="bname">The Warden</b><span id="bhpTxt">4200 / 4200</span></div>
+  <div class="bar" id="bhpBar" style="height:16px"><i id="bhpLag"></i><i id="bhp"></i></div>
   <div id="castrow" style="opacity:0"><span id="castname">Cast</span><div class="bar" id="castbar"><i id="cast"></i></div><div class="pips" id="pips"><i class="pip"></i><i class="pip"></i><i class="pip"></i></div></div>
   <div id="prow">
     <div id="pframe"><div class="bar" id="phpWrap"><i id="php"></i></div><span id="phpTxt">100</span><div class="dpips"><i class="dpip on"></i><i class="dpip on"></i></div></div>
@@ -199,7 +200,7 @@ body.guest #mindBtn,body.guest #mind{display:none!important}
   <div><h4>Warden's read on you</h4><div class="sub" id="mindMeta">0 fights remembered</div></div>
   <div id="mindTraits" style="display:grid;gap:7px"></div>
   <div><div class="sub">Learned counters</div><div class="chips" id="mindChips"></div></div>
-  <div><div class="sub">Next move odds</div><div class="odds" id="mindOdds"></div></div>
+  <div id="mindOddsWrap"><div class="sub">Next move odds</div><div class="odds" id="mindOdds"></div></div>
   <div class="mlog" id="mindLog"></div>
 </aside>
 
@@ -219,7 +220,7 @@ body.guest #mindBtn,body.guest #mind{display:none!important}
       <h1 class="title">Wardenfall</h1>
       <div class="tbar" aria-hidden="true"><i></i></div>
     </div>
-    <p class="lede">One arena, one boss. Every attack is painted on the floor before it lands: read the shape, get out before it fills. The Warden studies how you move and changes its moves to match.</p>
+    <p class="lede">One arena, two bosses. Every attack is painted on the floor before it lands: read the shape, get out before it fills. The Warden studies how you move and changes its moves to match.</p>
     <div class="sec"><h5>Reading the floor</h5>
       <div class="legend">
         <div class="lg"><span class="sw" style="--c:var(--enemy)"></span>Red hits everything. Leave the shape.</div>
@@ -255,11 +256,27 @@ body.guest #mindBtn,body.guest #mind{display:none!important}
   <div class="card">
     <h2 class="endtitle" id="endTitle">Warden broken</h2>
     <div class="stats" id="endStats"></div>
-    <div class="sec"><h5>What it learned about you</h5><div class="learned" id="endLearned"></div></div>
+    <div class="sec" id="endLearnedSec"><h5>What it learned about you</h5><div class="learned" id="endLearned"></div></div>
     <div class="row">
       <button type="button" class="cta" id="againBtn">Fight again</button>
       <button type="button" class="cta alt" id="joinBtn2">Join a fight</button>
+      <button type="button" class="ghost" id="restartBtn" hidden>Start over</button>
       <button type="button" class="ghost" id="titleBtn">Back to title</button>
+    </div>
+  </div>
+</section>
+
+<section class="screen" id="levelScreen" hidden>
+  <div class="card">
+    <div>
+      <div class="kicker" id="levelKicker">Level 1</div>
+      <h2 class="endtitle" id="levelTitle">The Sentinel</h2>
+    </div>
+    <p class="lede" id="levelLede"></p>
+    <div class="memo" id="levelHp"></div>
+    <div class="row">
+      <button type="button" class="cta" id="levelBtn">Enter the arena</button>
+      <button type="button" class="ghost" id="levelTitleBtn">Back to title</button>
     </div>
   </div>
 </section>
@@ -276,7 +293,7 @@ body.guest #mindBtn,body.guest #mind{display:none!important}
 <section class="screen" id="pauseScreen" hidden>
   <div class="card" style="text-align:center;justify-items:center">
     <h2 class="endtitle">Paused</h2>
-    <p class="memo" id="pauseNote" hidden>You're in a group fight: the Warden keeps going while you're paused.</p>
+    <p class="memo" id="pauseNote" hidden>You're in a group fight: the boss keeps going while you're paused.</p>
     <div class="row" style="justify-content:center">
       <button type="button" class="cta" id="resumeBtn">Resume</button>
       <button type="button" class="ghost" id="quitBtn">Quit to title</button>
@@ -303,7 +320,11 @@ const CFG = {
     hitIFrames: 0.4,
     airborneAt: 0.35         // height above which you count as "in the air"
   },
-  boss: { hp: 3360, radius: 2.1, height: 3.9, walkSpeed: 3.4, idealRange: 4.5, recover: [0.65, 1.25], exposedTime: 4 },
+  carryHp: true,             // player HP carries from one level into the next
+  // Level 1: one phase, slow and forgiving, never learns. The Warden's Mind still watches it.
+  sentinel: { hp: 1600, radius: 1.8, height: 3.3, walkSpeed: 2.4, idealRange: 4, turn: 2.2, recover: [1.8, 2.8], openDelay: 2.6, exposedTime: 4, timeScale: 1.8 },
+  // Level 2: the Warden. It also gets the `ramp` warm-up below.
+  boss: { hp: 3360, radius: 2.1, height: 3.9, walkSpeed: 3.4, idealRange: 4.5, turn: 3.2, recover: [0.65, 1.25], exposedTime: 4 },
   skills: {
     slash: { cd: 0.42, dmg: 32, r: 4.4, angle: 110, tele: 0.12 },
     lunge: { cd: 5, dmg: 70, len: 9, w: 2.2, tele: 0.16, travel: 0.2, armor: 1 },
@@ -339,8 +360,8 @@ const angTo = (ax, az, bx, bz) => Math.atan2(bx - ax, bz - az);
 const wrapA = a => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
 function edgeLen(x, z, rot) { const dx = Math.sin(rot), dz = Math.cos(rot); const b = x * dx + z * dz; const c = x * x + z * z - R * R; return -b + Math.sqrt(Math.max(0, b * b - c)); }
 function clampArena(o, margin) { const d = Math.hypot(o.x, o.z), lim = R - margin; if (d > lim) { o.x *= lim / d; o.z *= lim / d; } }
-// 0 at the start of a fight, 1 once the warm-up is over
-const rampK = () => clamp(B.time / CFG.ramp.time, 0, 1);
+// 0 at the start of a fight, 1 once the warm-up is over. Only encounters with `ramp` warm up.
+const rampK = () => ENC.ramp ? clamp(B.time / CFG.ramp.time, 0, 1) : 1;
 const countersOn = () => B.time >= CFG.ramp.countersAt;
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } },
@@ -515,9 +536,29 @@ const BM = (() => {
     add(new THREE.DodecahedronGeometry(0.72, 0), trim, s * 2.4, 0.85, 0.55);
     add(new THREE.CylinderGeometry(0.5, 0.62, 1.3, 7), stone, s * 0.85, 0.65, -0.1);
   }
-  const halo = add(new THREE.TorusGeometry(1.25, 0.09, 8, 48), haloMat, 0, 4.7, 0); halo.rotation.x = Math.PI / 2;
+  const halo = add(new THREE.TorusGeometry(1.25, 0.09, 8, 48), haloMat, 0, 4.7, 0); halo.rotation.x = Math.PI / 2; halo.userData.y = 4.7;
   scene.add(g);
   return { g, inner, stone, core, glow, halo, haloMat, shadow: makeShadow(6) };
+})();
+
+// Sentinel model (level 1): squat slate golem with one lantern eye. Same fields as BM so syncVisuals drives both.
+const SM = (() => {
+  const g = new THREE.Group(), inner = new THREE.Group(); g.add(inner);
+  const stone = new THREE.MeshStandardMaterial({ color: 0x3a4f5c, roughness: 0.85, flatShading: true, emissive: 0x000000 });
+  const trim = new THREE.MeshStandardMaterial({ color: 0x6f8f8a, roughness: 0.6, flatShading: true });
+  const glow = new THREE.MeshStandardMaterial({ color: 0xffd27a, emissive: 0xffb43d, emissiveIntensity: 1.6 });
+  const haloMat = new THREE.MeshStandardMaterial({ color: 0xffe2a8, emissive: 0xffc35a, emissiveIntensity: 1.0 });
+  const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); inner.add(m); return m; };
+  const body = add(new THREE.DodecahedronGeometry(1.55, 0), stone, 0, 1.85, 0); body.scale.set(1.1, 0.85, 0.95);
+  add(new THREE.BoxGeometry(1.5, 0.5, 0.9), trim, 0, 2.85, 0);
+  const core = add(new THREE.SphereGeometry(0.42, 12, 10), glow, 0, 2.0, 1.25);
+  for (const s of [-1, 1]) {
+    add(new THREE.BoxGeometry(0.95, 0.95, 0.95), trim, s * 1.75, 1.0, 0.45);
+    add(new THREE.CylinderGeometry(0.45, 0.55, 1.0, 6), stone, s * 0.7, 0.5, -0.1);
+  }
+  const halo = add(new THREE.TorusGeometry(0.9, 0.07, 6, 36), haloMat, 0, 3.6, 0); halo.rotation.x = Math.PI / 2; halo.userData.y = 3.6;
+  scene.add(g);
+  return { g, inner, stone, core, glow, halo, haloMat, shadow: makeShadow(5) };
 })();
 
 /* =====================================================================
@@ -656,7 +697,7 @@ function resolveTele(t) {
       if (t.ability && NET.role !== 'guest') Mind.onResolve(t.ability, hit);
       if (t.owner === 'boss') { SFX.play('resolve'); maybeEcho(t); }
     } else if (t.team === 'ally' && !B.dead) {
-      if (teleHitsDisk(t, B.x, B.z, CFG.boss.radius * 0.9)) { hit = true; B.damage(t.dmg, t.armor); if (t.onHit) t.onHit(t); }
+      if (teleHitsDisk(t, B.x, B.z, B.cfg.radius * 0.9)) { hit = true; B.damage(t.dmg, t.armor); if (t.onHit) t.onHit(t); }
     }
   }
   if (t.onResolve) t.onResolve(t, hit);
@@ -696,9 +737,9 @@ function updateWave(w, dt) {
    ===================================================================== */
 const P = {};
 const stats = {};
-function resetPlayer() {
+function resetPlayer(hp) {
   Object.assign(P, {
-    x: 0, z: 11, y: 0, vx: 0, vz: 0, vy: 0, hp: CFG.player.hp, grounded: true, jumps: 0, coyote: 0,
+    x: 0, z: 11, y: 0, vx: 0, vz: 0, vy: 0, hp: hp == null ? CFG.player.hp : hp, grounded: true, jumps: 0, coyote: 0,
     dashCharges: CFG.player.dashCharges, dashRegenT: 0, dashT: 0, dashDx: 0, dashDz: 1,
     iframes: 0, flash: 0, aimX: 0, aimZ: -1, facing: Math.PI,
     cds: { slash: 0, lunge: 0, burst: 0 }, lockT: 0, burstT: 0,
@@ -802,8 +843,8 @@ function finishMove(dt, noGravity) {
   if (P.y <= 0) { P.y = 0; if (P.vy < 0) P.vy = 0; P.grounded = true; } else P.grounded = false;
   clampArena(P, 0.6);
   if (!B.dead) {
-    const dx = P.x - B.x, dz = P.z - B.z, d = Math.hypot(dx, dz) || 0.001, minD = CFG.boss.radius + C.radius;
-    if (d < minD && P.y < CFG.boss.height - 0.3) { P.x = B.x + dx / d * minD; P.z = B.z + dz / d * minD; }
+    const dx = P.x - B.x, dz = P.z - B.z, d = Math.hypot(dx, dz) || 0.001, minD = B.cfg.radius + C.radius;
+    if (d < minD && P.y < B.cfg.height - 0.3) { P.x = B.x + dx / d * minD; P.z = B.z + dz / d * minD; }
   }
 }
 
@@ -840,9 +881,10 @@ P.pullTo = function (x, z, stopAt) {
    ===================================================================== */
 const B = {};
 function resetBoss() {
+  const C = ENC.cfg;
   Object.assign(B, {
-    x: 0, z: -4, facing: 0, hp: CFG.boss.hp, max: CFG.boss.hp, lagHp: CFG.boss.hp, phase: 1, runners: [],
-    recoverT: CFG.ramp.firstAttack, roarT: 0, castName: '', castT: 0, castDur: 1, channel: false, channelTag: null, armor: 0, armorMax: 0,
+    cfg: C, x: 0, z: -4, facing: 0, hp: C.hp, max: C.hp, lagHp: C.hp, phase: 1, runners: [],
+    recoverT: ENC.ramp ? CFG.ramp.firstAttack : C.openDelay, roarT: 0, castName: '', castT: 0, castDur: 1, channel: false, channelTag: null, armor: 0, armorMax: 0,
     exposedT: 0, lockTurn: false, move: null, last: null, prev: null, lastChannelAt: -99, time: 0, dead: false, deadT: 0,
     flash: 0, anim: null, animT: 0, animSeq: 0, lastEcho: -9, tgt: P, retargetT: 0
   });
@@ -901,7 +943,7 @@ const ABILITIES = {
       c.cast(this.name, d); B.animate('rear'); SFX.play('charge');
       c.tele({ shape: 'rect', x: B.x, z: B.z, rot, w: 4.4, len, dur: d, dmg: 30, pattern: 'charge' });
       yield d;
-      const go = len - CFG.boss.radius - 0.4;
+      const go = len - B.cfg.radius - 0.4;
       B.animate('charge'); B.moveTo(B.x + Math.sin(rot) * go, B.z + Math.cos(rot) * go, 0.32); shake(0.3, 0.3);
       yield 0.65;
     }
@@ -1018,9 +1060,98 @@ const ABILITIES = {
   }
 };
 
+// Level 1. Long windups (c.ts = CFG.sentinel.timeScale), light damage, one ability at a time, no feints.
+const SENTINEL_ABILITIES = {
+  sweep: {
+    name: 'Stone Sweep', weight: c => c.dist < 8 ? 1.4 : 0.2,
+    *run(c) {
+      yield 0.2; B.lockTurn = true;
+      const d = 1.0 * c.ts; c.cast(this.name, d);
+      c.tele({ shape: 'cone', x: B.x, z: B.z, rot: B.facing, r: 7.5, half: rad(50), dur: d, dmg: 10 });
+      yield d; B.animate('swing'); yield 0.5;
+    }
+  },
+  stomp: {
+    name: 'Heavy Stomp', weight: c => c.dist < 6.5 ? 1.2 : 0.3,
+    *run(c) {
+      B.lockTurn = true; const d = 1.2 * c.ts; c.cast(this.name, d);
+      c.tele({ shape: 'circle', x: B.x, z: B.z, r: 5.5, dur: d, dmg: 12 });
+      yield d; B.animate('slam'); shake(0.3, 0.2); yield 0.6;
+    }
+  },
+  ram: {
+    name: 'Lumbering Charge', weight: c => c.dist > 9 ? 1.4 : 0.3,
+    *run(c) {
+      B.lockTurn = true; const rot = angTo(B.x, B.z, c.tg.x, c.tg.z); B.facing = rot;
+      const len = Math.max(5, Math.min(16, edgeLen(B.x, B.z, rot) - 0.5)), d = 1.1 * c.ts;
+      c.cast(this.name, d); B.animate('rear'); SFX.play('charge');
+      c.tele({ shape: 'rect', x: B.x, z: B.z, rot, w: 3.6, len, dur: d, dmg: 13, pattern: 'charge' });
+      yield d;
+      const go = len - B.cfg.radius - 0.4;
+      B.animate('charge'); B.moveTo(B.x + Math.sin(rot) * go, B.z + Math.cos(rot) * go, 0.5); shake(0.25, 0.25);
+      yield 1.0;
+    }
+  },
+  rubble: {
+    name: 'Falling Rubble', weight: c => c.dist > 8 ? 1.1 : 0.5,
+    *run(c) {
+      c.cast(this.name, 3 * 0.6 + 1.0 * c.ts);
+      for (let i = 0; i < 3; i++) {
+        const o = { x: c.tg.x, z: c.tg.z }; clampArena(o, 1);
+        c.tele({ shape: 'circle', x: o.x, z: o.z, r: 2.8, dur: 1.0 * c.ts, dmg: 8 });
+        yield 0.6;
+      }
+      yield 1.0;
+    }
+  },
+  ripple: {
+    name: 'Ground Ripple', weight: () => 0.7,
+    *run(c) {
+      B.lockTurn = true; const d = 0.9 * c.ts; c.cast(this.name, d + 0.5);
+      c.tele({ shape: 'circle', x: B.x, z: B.z, r: 3, dur: d, hits: 'ground', visual: true }); yield d;
+      spawnWave({ x: B.x, z: B.z, speed: 7.5, dmg: 9, ability: 'ripple' }); B.animate('slam'); shake(0.25, 0.2);
+      yield 0.9;
+    }
+  }
+};
+
+/* =====================================================================
+   ENCOUNTERS: one per level, in order. `learns` hands ability choice to
+   the Mind; otherwise a plain weighted pick. The Mind profiles the player
+   in every encounter, so level 1 shapes what the Warden expects.
+   ===================================================================== */
+const ENCOUNTERS = [
+  {
+    key: 'sentinel', name: 'The Sentinel', cfg: CFG.sentinel, abilities: SENTINEL_ABILITIES, model: SM, learns: false,
+    phaseAt: [], timeScale: [CFG.sentinel.timeScale], halo: [0xffc35a],
+    lede: 'A slow stone guardian. Its attacks are wide and easy to read, and it never changes them. Learn the shapes here.',
+    winTitle: 'Sentinel felled'
+  },
+  {
+    key: 'warden', name: 'The Warden', cfg: CFG.boss, abilities: ABILITIES, model: BM, learns: true, ramp: true,
+    phaseAt: CFG.phaseAt, timeScale: CFG.phaseTimeScale, halo: [0x8a4dff, 0xff9a3d, 0xff3d52],
+    phaseToasts: [['Phase II', 'The Warden hardens. New patterns unlocked.'], ['Phase III', 'Faster telegraphs. Overlapping attacks.']],
+    lede: 'Three phases, interrupt armor, and a mind that studies how you move and changes its moves to match.',
+    winTitle: 'Warden broken', winToast: 'It will remember this.'
+  }
+];
+let ENC = ENCOUNTERS[0];
+function simpleChoose() {
+  const c = { dist: Math.hypot(B.tgt.x - B.x, B.tgt.z - B.z), phase: B.phase }, pool = [];
+  let sum = 0;
+  for (const k in ENC.abilities) {
+    let w = ENC.abilities[k].weight(c);
+    if (k === B.last) w *= 0.25;
+    if (w > 0) { pool.push({ k, w }); sum += w; }
+  }
+  let r = Math.random() * sum, pick = pool[0].k;
+  for (const o of pool) { r -= o.w; if (r <= 0) { pick = o.k; break; } }
+  B.prev = B.last; B.last = pick; return pick;
+}
+
 // Echo: a learned modifier. If you dash right as a hit lands, it strikes where you end up.
 function maybeEcho(t) {
-  if (NET.role === 'guest' || !Mind.p.learned.echo || !countersOn() || t.isEcho || B.dead || state !== 'fight') return;
+  if (NET.role === 'guest' || !ENC.learns || !Mind.p.learned.echo || !countersOn() || t.isEcho || B.dead || state !== 'fight') return;
   if (B.time - B.lastEcho < 1.6 || clock - P.lastDashAt > 0.45 || Math.random() > 0.6) return;
   B.lastEcho = B.time;
   const o = { x: P.x + P.dashDx * 2.2, z: P.z + P.dashDz * 2.2 }; clampArena(o, 1);
@@ -1028,7 +1159,7 @@ function maybeEcho(t) {
 }
 
 B.animate = function (k) { B.anim = k; B.animT = 0; B.animSeq++; };
-B.moveTo = function (x, z, dur) { const o = { x, z }; clampArena(o, CFG.boss.radius + 0.4); B.move = { fx: B.x, fz: B.z, tx: o.x, tz: o.z, t: 0, dur }; };
+B.moveTo = function (x, z, dur) { const o = { x, z }; clampArena(o, B.cfg.radius + 0.4); B.move = { fx: B.x, fz: B.z, tx: o.x, tz: o.z, t: 0, dur }; };
 B.damage = function (dmg, armorDmg, remote) {
   if (B.dead || state !== 'fight') return;
   const mult = B.exposedT > 0 ? 2 : 1, d = Math.round(dmg * mult);
@@ -1047,9 +1178,9 @@ function breakChannel() {
   const tag = B.channelTag;
   Tele.cancelWhere(t => t.tag === tag);
   B.runners = B.runners.filter(r => r.tag !== tag);
-  B.channel = false; B.lockTurn = false; B.exposedT = CFG.boss.exposedTime; B.castName = '';
+  B.channel = false; B.lockTurn = false; B.exposedT = B.cfg.exposedTime; B.castName = '';
   stats.interrupts++; shake(0.4, 0.3); hitstop = 0.08; SFX.play('break');
-  toast('Interrupted', 'The Warden is exposed. Double damage.', 'var(--safe)', true);
+  toast('Interrupted', ENC.name + ' is exposed. Double damage.', 'var(--safe)', true);
 }
 function bossDie() {
   B.dead = true; B.runners = []; B.castName = ''; B.channel = false;
@@ -1075,15 +1206,15 @@ function pickTarget() {
 
 function makeCtx(key, tag, primary) {
   return {
-    tag, key, phase: B.phase, ts: CFG.phaseTimeScale[B.phase - 1] * lerp(CFG.ramp.teleSlow, 1, rampK()),
-    learned: countersOn() ? Mind.p.learned : {},
+    tag, key, phase: B.phase, ts: ENC.timeScale[B.phase - 1] * lerp(CFG.ramp.teleSlow, 1, rampK()),
+    learned: ENC.learns && countersOn() ? Mind.p.learned : {},
     tg: B.tgt, dist: Math.hypot(B.tgt.x - B.x, B.tgt.z - B.z),
     tele: o => Tele.spawn(Object.assign({ tag, ability: key, owner: 'boss' }, o)),
     cast: (name, dur) => { if (primary) { B.castName = name; B.castT = 0; B.castDur = dur; } }
   };
 }
 function startAbility(key, primary) {
-  const a = ABILITIES[key], tag = ++tagSeq;
+  const a = ENC.abilities[key], tag = ++tagSeq;
   const gen = a.run.call(a, makeCtx(key, tag, primary));
   B.runners.push({ gen, wait: 0, primary, key, tag, done: false });
 }
@@ -1095,10 +1226,10 @@ function updateBoss(dt) {
 
   // phases
   const f = B.hp / B.max;
-  const want = f <= CFG.phaseAt[1] ? 3 : f <= CFG.phaseAt[0] ? 2 : 1;
+  const want = 1 + ENC.phaseAt.filter(a => f <= a).length;
   if (want > B.phase) {
     B.phase = want; B.roarT = 1.3; B.animate('slam'); shake(0.5, 0.4);
-    toast(want === 2 ? 'Phase II' : 'Phase III', want === 2 ? 'The Warden hardens. New patterns unlocked.' : 'Faster telegraphs. Overlapping attacks.', 'var(--boss)', true);
+    const pt = ENC.phaseToasts[want - 2]; toast(pt[0], pt[1], 'var(--boss)', true);
   }
 
   if (B.move) {
@@ -1116,14 +1247,14 @@ function updateBoss(dt) {
   // facing
   const dist = Math.hypot(T.x - B.x, T.z - B.z);
   if (!B.lockTurn) {
-    const target = angTo(B.x, B.z, T.x, T.z), diff = wrapA(target - B.facing), turn = (B.phase >= 3 ? 4.5 : 3.2) * dt;
+    const target = angTo(B.x, B.z, T.x, T.z), diff = wrapA(target - B.facing), turn = B.cfg.turn * (B.phase >= 3 ? 1.4 : 1) * dt;
     B.facing = wrapA(B.facing + clamp(diff, -turn, turn));
   }
 
   const hasPrimary = B.runners.some(r => r.primary);
-  if (!hasPrimary && !B.move && dist > CFG.boss.idealRange + 1.5) {
-    const s = CFG.boss.walkSpeed * dt;
-    B.x += Math.sin(B.facing) * s; B.z += Math.cos(B.facing) * s; clampArena(B, CFG.boss.radius + 0.4);
+  if (!hasPrimary && !B.move && dist > B.cfg.idealRange + 1.5) {
+    const s = B.cfg.walkSpeed * dt;
+    B.x += Math.sin(B.facing) * s; B.z += Math.cos(B.facing) * s; clampArena(B, B.cfg.radius + 0.4);
   }
 
   stepRunners(dt);
@@ -1133,9 +1264,9 @@ function updateBoss(dt) {
     B.recoverT -= dt;
     if (B.recoverT <= 0 && T.hp > 0) {
       B.tgt = pickTarget(); B.retargetT = 3;
-      const key = Mind.choose();
+      const key = ENC.learns ? Mind.choose() : simpleChoose();
       startAbility(key, true);
-      if (B.phase >= 3 && rampK() >= 1 && key !== 'meteor' && !ABILITIES[key].channel && Math.random() < 0.3) startAbility('meteor', false);
+      if (B.phase >= 3 && rampK() >= 1 && key !== 'meteor' && !ENC.abilities[key].channel && Math.random() < 0.3) startAbility('meteor', false);
     }
   }
 }
@@ -1151,7 +1282,7 @@ function stepRunners(dt) {
       B.runners.splice(i, 1);
       if (r.primary) {
         B.castName = ''; B.lockTurn = false;
-        const full = rand(CFG.boss.recover[0], CFG.boss.recover[1]) * (B.phase >= 3 ? 0.7 : 1);
+        const full = rand(B.cfg.recover[0], B.cfg.recover[1]) * (B.phase >= 3 ? 0.7 : 1);
         B.recoverT = lerp(rand(CFG.ramp.recover[0], CFG.ramp.recover[1]), full, rampK());
       }
     }
@@ -1182,20 +1313,22 @@ const Mind = {
   },
   save() { store.set(MIND_KEY, this.p); },
   wipe() { store.set(MIND_KEY, null); this.load({}); this.log = []; },
+  // Once per attempt: a new run, or a retry. Advancing a level keeps the profile as level 1 left it.
   beginFight() {
     const p = this.p;
     for (const k in NEUTRAL) p[k] = lerp(p[k], NEUTRAL[k], 0.25);   // memory fades a little between fights
-    this.obs = 0; this.checkT = 0; this.learnedThisFight = []; this.log = [];
+    this.learnedThisFight = []; this.log = [];
     const known = Object.keys(p.learned).filter(k => p.learned[k]);
     if (known.length) this.log.push('Remembers: ' + known.map(k => TRAITS[k].ability).join(', '));
   },
+  beginEncounter() { this.obs = 0; this.checkT = 0; },
   tick(dt) {
     const p = this.p; this.obs += dt;
     const dist = Math.hypot(P.x - B.x, P.z - B.z);
     p.range += (dist - p.range) * Math.min(1, dt / 6);
     p.air += ((P.y > CFG.player.airborneAt ? 1 : 0) - p.air) * Math.min(1, dt / 10);
     this.checkT -= dt;
-    if (this.checkT <= 0 && this.obs > 10) {
+    if (ENC.learns && this.checkT <= 0 && this.obs > 10) {
       this.checkT = 1;
       for (const k in TRAITS) if (!p.learned[k] && TRAITS[k].test(p)) this.unlock(k);
     }
@@ -1208,7 +1341,7 @@ const Mind = {
     for (const t of Tele.list) if (t.team === 'enemy' && !t.resolved && !t.visual && teleContains(t, P.x, P.z)) threat = Math.max(threat, t.prog);
     if (threat >= 0) { p.timing += (threat - p.timing) * 0.25; p.timingN++; }
   },
-  onResolve(key, hit) { const h = this.p.hit; h[key] = (h[key] == null ? 0.5 : h[key]) * 0.8 + (hit ? 0.2 : 0); },
+  onResolve(key, hit) { if (!ENC.learns) return; const h = this.p.hit; h[key] = (h[key] == null ? 0.5 : h[key]) * 0.8 + (hit ? 0.2 : 0); },
   unlock(k) {
     this.p.learned[k] = true; this.learnedThisFight.push(k);
     this.log.unshift(TRAITS[k].msg); this.log.length = Math.min(this.log.length, 4);
@@ -1312,9 +1445,10 @@ const camFocus = new THREE.Vector3(0, 0, 4);
 function updateCamera(dt) {
   const portrait = innerHeight > innerWidth;
   const offY = portrait ? 27 : 18, offZ = portrait ? 15 : 13.5;
+  const still = state === 'title' || state === 'intro';
   let fx = P.x, fz = P.z;
   if (P.hp <= 0 && state === 'fight') for (const p of NET.peers.values()) if (p.seen && p.hp > 0) { fx = p.rx; fz = p.rz; break; }   // spectate a teammate
-  const tx = state === 'title' ? 0 : fx + (B.x - fx) * 0.3, tz = state === 'title' ? 2 : fz + (B.z - fz) * 0.3;
+  const tx = still ? 0 : fx + (B.x - fx) * 0.3, tz = still ? 2 : fz + (B.z - fz) * 0.3;
   const k = 1 - Math.exp(-6 * dt); camFocus.x += (tx - camFocus.x) * k; camFocus.z += (tz - camFocus.z) * k;
   shakeT = Math.max(0, shakeT - dt); if (shakeT <= 0) shakeMag = 0;
   const s = shakeMag * Math.min(1, shakeT * 4);
@@ -1387,7 +1521,7 @@ function updateHUD() {
   H.bhp.style.transform = `scaleX(${B.hp / B.max})`; H.bhpLag.style.transform = `scaleX(${B.lagHp / B.max})`;
   H.bhpTxt.textContent = `${Math.ceil(B.hp)} / ${B.max}`;
   let show = false, exposed = false;
-  if (B.exposedT > 0) { show = true; exposed = true; H.castname.textContent = 'Exposed'; H.cast.style.transform = `scaleX(${B.exposedT / CFG.boss.exposedTime})`; }
+  if (B.exposedT > 0) { show = true; exposed = true; H.castname.textContent = 'Exposed'; H.cast.style.transform = `scaleX(${B.exposedT / B.cfg.exposedTime})`; }
   else if (B.castName) { show = true; H.castname.textContent = B.castName; H.cast.style.transform = `scaleX(${Math.min(1, B.castT / B.castDur)})`; }
   H.castrow.style.opacity = show ? 1 : 0; H.castrow.classList.toggle('exposed', exposed);
   H.pips.forEach((p, i) => { p.hidden = !B.channel || i >= B.armorMax; p.classList.toggle('on', i < B.armor); });
@@ -1398,6 +1532,11 @@ function updateHUD() {
   H.btn.dash.style.setProperty('--cd', P.dashCharges > 0 ? 0 : (1 - P.dashRegenT / CFG.player.dashRegen).toFixed(3));
   H.btn.jump.style.setProperty('--cd', P.jumps >= CFG.player.maxJumps ? 0.999 : 0);
   if (NET.peers.size) NET.renderParty();
+}
+function setupBossHud() {
+  $('#bname').textContent = ENC.name;
+  const bar = $('#bhpBar'); bar.querySelectorAll('.tick').forEach(t => t.remove());
+  for (const a of ENC.phaseAt) { const t = document.createElement('span'); t.className = 'tick'; t.style.left = (a * 100) + '%'; bar.appendChild(t); }
 }
 let mindOpen = true, mindT = 0;
 function setMind(on) { mindOpen = on; $('#mind').hidden = !on; $('#mindBtn').setAttribute('aria-pressed', String(on)); Ptr.box = null; }
@@ -1413,6 +1552,8 @@ function renderMind() {
   ];
   $('#mindTraits').innerHTML = rows.map(r => `<div class="trait"><span>${r[0]}</span><em>${r[1]}</em><div class="tb"><i style="width:${(r[2] * 100).toFixed(0)}%"></i></div></div>`).join('');
   $('#mindChips').innerHTML = Object.keys(TRAITS).map(k => `<span class="chip${p.learned[k] ? ' on' : ''}">${TRAITS[k].ability}</span>`).join('');
+  $('#mindOddsWrap').hidden = !ENC.learns;
+  if (!ENC.learns) { $('#mindLog').innerHTML = Mind.log.slice(0, 3).map(s => `<div>${s}</div>`).join(''); return; }
   const pool = Mind.pool(); let sum = 0; pool.forEach(o => sum += o.w); pool.sort((a, b) => b.w - a.w);
   $('#mindOdds').innerHTML = pool.slice(0, 5).map(o => { const pc = Math.round(o.w / sum * 100); return `<div class="odd"><span>${ABILITIES[o.k].name}</span><b>${pc}%</b><div class="ob"><i style="width:${pc}%"></i></div></div>`; }).join('');
   $('#mindLog').innerHTML = Mind.log.slice(0, 3).map(s => `<div>${s}</div>`).join('');
@@ -1553,11 +1694,11 @@ const NET = {
   // Host: a new hunter arrived. Toughen the boss, then send them the fight so far.
   welcome(id) {
     if (state !== 'fight') return;
-    const f = B.hp / B.max; B.max = Math.round(B.max + CFG.boss.hp * CFG.mp.hpPerPlayer); B.hp = f * B.max; B.lagHp = B.hp;
+    const f = B.hp / B.max; B.max = Math.round(B.max + B.cfg.hp * CFG.mp.hpPerPlayer); B.hp = f * B.max; B.lagHp = B.hp;
     const teles = Tele.list.filter(t => t.id && !t.resolved).map(t => this.wireTele(t));
     const waves = Tele.waves.filter(w => !w.done).map(w => this.wireWave(w));
     this.to(id, { k: 'init', b: this.bossState(), teles, waves, me: this.meState() });
-    toast(this.peers.get(id).name + ' joined', 'The Warden grows stronger.', 'var(--safe)');
+    toast(this.peers.get(id).name + ' joined', ENC.name + ' grows stronger.', 'var(--safe)');
   },
   wireTele(t) {
     const o = { id: t.id, shape: t.shape, x: r2(t.x), z: r2(t.z), rot: r2(t.rot), r: r2(t.r), rin: r2(t.rin), half: r2(t.half), w: r2(t.w), len: r2(t.len),
@@ -1581,7 +1722,7 @@ const NET = {
     if (this.teles.size > 150) for (const [k, v] of this.teles) if (v.resolved) this.teles.delete(k);
   },
   bossState() {
-    return { x: r2(B.x), z: r2(B.z), f: r2(B.facing), hp: Math.round(B.hp), mx: B.max, ph: B.phase, cn: B.castName, ct: r2(B.castT), cd: r2(B.castDur),
+    return { en: ENC.key, x: r2(B.x), z: r2(B.z), f: r2(B.facing), hp: Math.round(B.hp), mx: B.max, ph: B.phase, cn: B.castName, ct: r2(B.castT), cd: r2(B.castDur),
       ch: B.channel ? 1 : 0, ar: B.armor, am: B.armorMax, ex: r2(B.exposedT), an: B.anim, as: B.animSeq, dd: B.dead ? 1 : 0, tm: r2(B.time) };
   },
   meState() { return { k: 'me', x: r2(P.x), y: r2(P.y), z: r2(P.z), vx: r2(P.vx), vz: r2(P.vz), f: r2(P.facing), hp: Math.ceil(P.hp) }; },
@@ -1607,7 +1748,7 @@ const NET = {
     }
     if (this.role === 'host' && this.you != null) {
       this.metaT -= dt;
-      if (this.metaT <= 0) { this.metaT = 3; this.raw({ t: 'meta', meta: { ph: B.phase, hp: Math.round(B.hp / B.max * 100), t: Math.round(stats.time) } }); }
+      if (this.metaT <= 0) { this.metaT = 3; this.raw({ t: 'meta', meta: { n: ENC.name, ph: B.phase, hp: Math.round(B.hp / B.max * 100), t: Math.round(stats.time) } }); }
     }
   },
   // Teammates: glide toward their latest reported position
@@ -1651,7 +1792,7 @@ function renderRooms(rooms) {
     const m = r.meta || {};
     b.innerHTML = '<b></b><small></small><em></em>';
     b.querySelector('b').textContent = `${r.name}’s fight`;
-    b.querySelector('small').textContent = [m.ph ? 'Phase ' + PH[m.ph] : 'Starting', m.hp != null ? `Warden at ${m.hp}%` : '', `${r.players}/4 hunters`].filter(Boolean).join(' · ');
+    b.querySelector('small').textContent = [m.ph ? 'Phase ' + PH[m.ph] : 'Starting', m.hp != null ? `${m.n || 'The Warden'} at ${m.hp}%` : '', `${r.players}/4 hunters`].filter(Boolean).join(' · ');
     b.querySelector('em').textContent = r.full ? 'Full' : 'Join';
     b.addEventListener('click', () => { SFX.init(); NET.join(r.id); });
     list.appendChild(b);
@@ -1662,22 +1803,41 @@ function renderRooms(rooms) {
    GAME FLOW
    ===================================================================== */
 let state = 'title', paused = false, endT = 0;
+// A run is the encounters in order. entryHp is what you start the current level with (and retry it with).
+const run = { level: 0, entryHp: CFG.player.hp };
+let endAction = null;
 function show(id, on) { $(id).hidden = !on; }
 function refreshMemo() {
   const p = Mind.p, known = Object.keys(p.learned).filter(k => p.learned[k]);
   $('#memoLine').textContent = p.fights === 0 && !known.length ? 'The Warden has no memory of you yet.'
     : `The Warden remembers ${p.fights} fight${p.fights === 1 ? '' : 's'}${known.length ? ' and has learned ' + known.length + ' counter' + (known.length === 1 ? '' : 's') : ''}.`;
 }
-// A fresh fight that you host: anyone can join it from their lobby
-function newFight() {
+function setLevel(i) { run.level = i; ENC = ENCOUNTERS[i]; }
+// Intro card for a level; its boss idles behind it until you click through
+function showLevel(i, hp) {
   NET.reset();
-  Tele.clear(); Dmg.clear(); resetPlayer(); resetBoss(); Mind.beginFight();
+  setLevel(i); run.entryHp = hp;
+  state = 'intro'; paused = false; Tele.clear(); Dmg.clear(); resetPlayer(hp); resetBoss();
+  document.body.classList.remove('fighting');
+  show('#startScreen', false); show('#endScreen', false); show('#pauseScreen', false); show('#lobbyScreen', false); show('#levelScreen', true);
+  $('#levelKicker').textContent = `Level ${i + 1} of ${ENCOUNTERS.length}`;
+  $('#levelTitle').textContent = ENC.name; $('#levelLede').textContent = ENC.lede;
+  $('#levelHp').textContent = hp < CFG.player.hp ? `You carry ${hp} HP into this fight.` : '';
+}
+function newRun() { Mind.beginFight(); showLevel(0, CFG.player.hp); }
+function retryLevel() { Mind.beginFight(); startFight(); }
+// The current level as a fresh fight that you host: anyone can join it from their lobby.
+// Each level is its own fight, so teammates from level 1 don't follow you into level 2.
+function startFight() {
+  NET.reset();
+  Tele.clear(); Dmg.clear(); resetPlayer(run.entryHp); resetBoss(); Mind.beginEncounter();
   enterArena();
   NET.host();
 }
-// Join someone else's fight already in progress
+// Join someone else's fight already in progress, on whichever level they're fighting
 function startGuestFight(d) {
   NET.lobby = false; NET.pendingJoin = null;
+  const lv = ENCOUNTERS.findIndex(e => e.key === (d.b && d.b.en)); setLevel(lv < 0 ? ENCOUNTERS.length - 1 : lv);
   Tele.clear(); Dmg.clear(); resetPlayer(); resetBoss();
   NET.snap = null; NET.applySnap(d.b);
   const a = Math.random() * Math.PI * 2; P.x = B.x + Math.sin(a) * 12; P.z = B.z + Math.cos(a) * 12; clampArena(P, 3);
@@ -1690,11 +1850,12 @@ function startGuestFight(d) {
   const host = NET.peers.get(NET.hostId); if (host && d.me) NET.onMe(host, d.me);
   for (const p of NET.peers.values()) if (p.seen && !p.model) p.model = makePlayerModel(p.color);
   NET.toAll(NET.meState());
-  toast('Joined ' + (host ? host.name + '\u2019s' : 'the') + ' fight', 'The Warden is already awake. Stay out of the red.', 'var(--safe)');
+  toast('Joined ' + (host ? host.name + '\u2019s' : 'the') + ' fight', ENC.name + ' is already awake. Stay out of the red.', 'var(--safe)');
 }
 function enterArena() {
+  setupBossHud();
   state = 'fight'; paused = false; endT = 0; In.pressed.clear();
-  show('#startScreen', false); show('#endScreen', false); show('#pauseScreen', false); show('#lobbyScreen', false);
+  show('#startScreen', false); show('#endScreen', false); show('#pauseScreen', false); show('#levelScreen', false); show('#lobbyScreen', false);
   document.body.classList.add('fighting');
   camFocus.set(0, 0, 6); if (NET.role !== 'guest') renderMind();
   if (!In.touch) canvas.focus({ preventScroll: true });
@@ -1714,27 +1875,37 @@ function endFight(won, why) {
     if (won) { B.dead = true; B.runners = []; B.castName = ''; }
     Tele.cancelWhere(t => t.owner === 'boss'); for (const w of Tele.waves) w.done = true, w.fade = 0.2;
   }
-  if (NET.role !== 'guest') Mind.endFight(won);
+  if (NET.role !== 'guest') { if (ENC.learns) Mind.endFight(won); else Mind.save(); }   // level 1 doesn't count as a fight, but keep what was observed
   SFX.play(won ? 'win' : 'lose');
-  if (won) toast('Warden broken', NET.role === 'guest' ? 'Your party brought it down.' : 'It will remember this.', 'var(--safe)');
+  if (won && NET.role === 'guest') toast(ENC.winTitle, 'Your party brought it down.', 'var(--safe)');
+  else if (won && ENC.winToast) toast(ENC.winTitle, ENC.winToast, 'var(--safe)');
   else if (why === 'host') toast('Fight closed', 'The host left the arena.', 'var(--muted)');
   showEnd(won, why);
 }
 function showEnd(won, why) {
-  $('#endTitle').textContent = won ? 'Warden broken' : why === 'host' ? 'Host left' : NET.grouped ? 'Party fell' : 'You fell';
+  const guest = NET.role === 'guest', next = won && !guest && run.level < ENCOUNTERS.length - 1;
+  $('#endTitle').textContent = won ? ENC.winTitle : why === 'host' ? 'Host left' : NET.grouped ? 'Party fell' : 'You fell';
   $('#endTitle').style.color = won ? 'var(--safe)' : why === 'host' ? 'var(--muted)' : 'var(--enemy)';
   const mm = Math.floor(stats.time / 60), ss = String(Math.floor(stats.time % 60)).padStart(2, '0');
-  const cells = [[`${mm}:${ss}`, 'Time'], [stats.dealt, 'Damage dealt'], [stats.hitsTaken, 'Hits taken'], [stats.dodges, 'Telegraphs dodged'], [stats.interrupts, 'Interrupts'], [won ? `${Math.ceil(P.hp)} hp` : `${Math.round(100 - B.hp / B.max * 100)}%`, won ? 'Health left' : 'Boss damaged']];
+  const hasChannel = Object.values(ENC.abilities).some(a => a.channel);
+  const cells = [[`${mm}:${ss}`, 'Time'], [stats.dealt, 'Damage dealt'], [stats.hitsTaken, 'Hits taken'], [stats.dodges, 'Telegraphs dodged'], hasChannel && [stats.interrupts, 'Interrupts'], [won ? `${Math.ceil(P.hp)} hp` : `${Math.round(100 - B.hp / B.max * 100)}%`, won ? 'Health left' : 'Boss damaged']].filter(Boolean);
   $('#endStats').innerHTML = cells.map(c => `<div class="stat"><b>${c[0]}</b><span>${c[1]}</span></div>`).join('');
-  if (NET.role === 'guest') {
-    $('#endLearned').innerHTML = '<div>The Warden studies whoever opened the fight. Start your own to teach it about you.</div>';
-    return;
+  show('#endLearnedSec', ENC.learns);
+  if (ENC.learns && guest) $('#endLearned').innerHTML = '<div>The Warden studies whoever opened the fight. Start your own to teach it about you.</div>';
+  else if (ENC.learns) {
+    const lines = Mind.learnedThisFight.map(k => TRAITS[k].msg);
+    const known = Object.keys(Mind.p.learned).filter(k => Mind.p.learned[k] && !Mind.learnedThisFight.includes(k));
+    if (known.length) lines.push('Already knew: ' + known.map(k => TRAITS[k].ability).join(', ') + '.');
+    if (!lines.length) lines.push('Nothing new yet. It needs to see more of how you move.');
+    $('#endLearned').innerHTML = lines.map(s => `<div>${s}</div>`).join('');
   }
-  const lines = Mind.learnedThisFight.map(k => TRAITS[k].msg);
-  const known = Object.keys(Mind.p.learned).filter(k => Mind.p.learned[k] && !Mind.learnedThisFight.includes(k));
-  if (known.length) lines.push('Already knew: ' + known.map(k => TRAITS[k].ability).join(', ') + '.');
-  if (!lines.length) lines.push('Nothing new yet. It needs to see more of how you move.');
-  $('#endLearned').innerHTML = lines.map(s => `<div>${s}</div>`).join('');
+  // A guest's fight belongs to the host, so a guest's next fight is a run of their own
+  if (next) {
+    const hp = CFG.carryHp ? Math.ceil(P.hp) : CFG.player.hp;
+    $('#againBtn').textContent = 'Continue'; endAction = () => showLevel(run.level + 1, hp);
+  } else if (won || guest) { $('#againBtn').textContent = 'Fight again'; endAction = newRun; }
+  else { $('#againBtn').textContent = 'Retry ' + ENC.name; endAction = retryLevel; }
+  show('#restartBtn', !won && !guest && run.level > 0);
 }
 function togglePause() {
   if (state !== 'fight') return;
@@ -1743,15 +1914,19 @@ function togglePause() {
 }
 function toTitle() {
   NET.reset();
+  setLevel(ENCOUNTERS.length - 1);   // the Warden stands behind the title
   state = 'title'; paused = false; Tele.clear(); Dmg.clear(); resetPlayer(); resetBoss();
   document.body.classList.remove('fighting');
-  show('#endScreen', false); show('#pauseScreen', false); show('#lobbyScreen', false); show('#startScreen', true); refreshMemo();
+  show('#endScreen', false); show('#pauseScreen', false); show('#levelScreen', false); show('#lobbyScreen', false); show('#startScreen', true); refreshMemo();
 }
 function openLobby() {
   SFX.init(); toTitle(); show('#startScreen', false); show('#lobbyScreen', true); NET.openLobby();
 }
-$('#startBtn').addEventListener('click', () => { SFX.init(); newFight(); });
-$('#againBtn').addEventListener('click', () => { SFX.init(); newFight(); });
+$('#startBtn').addEventListener('click', () => { SFX.init(); newRun(); });
+$('#levelBtn').addEventListener('click', () => { SFX.init(); startFight(); });
+$('#levelTitleBtn').addEventListener('click', toTitle);
+$('#againBtn').addEventListener('click', () => { SFX.init(); endAction(); });
+$('#restartBtn').addEventListener('click', () => { SFX.init(); newRun(); });
 $('#joinBtn').addEventListener('click', openLobby);
 $('#joinBtn2').addEventListener('click', openLobby);
 $('#lobbyBack').addEventListener('click', toTitle);
@@ -1776,9 +1951,10 @@ function syncVisuals(dt) {
   // player
   PM.g.position.set(P.x, P.y, P.z); PM.g.rotation.y = P.facing;
   const blink = P.iframes > 0 && Math.floor(clock * 20) % 2 === 0;
-  PM.g.visible = state !== 'title' && P.hp > 0 && !blink;
+  const onStage = state !== 'title' && state !== 'intro';
+  PM.g.visible = onStage && P.hp > 0 && !blink;
   PM.suit.emissive.setRGB(P.flash * 3, 0, 0);
-  PM.shadow.visible = PM.arrow.visible = state !== 'title';
+  PM.shadow.visible = PM.arrow.visible = onStage;
   PM.shadow.position.set(P.x, 0.012, P.z); const ss = 1 - Math.min(P.y / 9, 0.5); PM.shadow.scale.set(ss, 1, ss);
   PM.arrow.position.set(P.x, 0.03, P.z); PM.arrow.rotation.y = P.facing;
   for (const g of ghosts) { if (g.t > 0) { g.t -= dt; g.m.material.opacity = Math.max(0, g.t / 0.28) * 0.35; if (g.t <= 0) g.m.visible = false; } }
@@ -1792,17 +1968,18 @@ function syncVisuals(dt) {
   if (B.anim === 'rear') y = Math.abs(Math.sin(t * 14)) * 0.14;   // pawing the ground
   if (B.dead) { y = -Math.min(4, B.deadT * 2); tilt = Math.min(0.6, B.deadT * 0.4); }
   const bob = Math.sin(clock * 2) * 0.08;
-  BM.g.position.set(B.x, y + bob, B.z); BM.g.rotation.y = B.facing + spin; BM.inner.rotation.z = tilt; BM.inner.scale.set(1, sq, 1);
-  if (B.exposedT > 0) BM.inner.rotation.x = 0.28;
-  else if (B.anim === 'rear') BM.inner.rotation.x += (-0.32 - BM.inner.rotation.x) * 0.2;   // rears back before a charge
-  else BM.inner.rotation.x *= 0.85;
-  BM.stone.emissive.setRGB(B.flash * 4, B.flash * 3, B.flash * 3);
-  BM.halo.rotation.z += dt * (B.channel ? 6 : 1.2);
-  BM.halo.position.y = 4.7 + Math.sin(clock * 3) * 0.12;
-  const hc = B.exposedT > 0 ? 0x49f2a8 : B.channel ? 0xffffff : B.phase === 3 ? 0xff3d52 : B.phase === 2 ? 0xff9a3d : 0x8a4dff;
-  BM.haloMat.emissive.setHex(hc);
-  BM.glow.emissiveIntensity = 1.4 + (B.castName ? Math.sin(clock * 18) * 0.6 + 0.6 : 0);
-  BM.shadow.position.set(B.x, 0.011, B.z);
+  for (const e of ENCOUNTERS) e.model.g.visible = e.model.shadow.visible = e === ENC;
+  const M = ENC.model;
+  M.g.position.set(B.x, y + bob, B.z); M.g.rotation.y = B.facing + spin; M.inner.rotation.z = tilt; M.inner.scale.set(1, sq, 1);
+  if (B.exposedT > 0) M.inner.rotation.x = 0.28;
+  else if (B.anim === 'rear') M.inner.rotation.x += (-0.32 - M.inner.rotation.x) * 0.2;   // rears back before a charge
+  else M.inner.rotation.x *= 0.85;
+  M.stone.emissive.setRGB(B.flash * 4, B.flash * 3, B.flash * 3);
+  M.halo.rotation.z += dt * (B.channel ? 6 : 1.2);
+  M.halo.position.y = M.halo.userData.y + Math.sin(clock * 3) * 0.12;
+  M.haloMat.emissive.setHex(B.exposedT > 0 ? 0x49f2a8 : B.channel ? 0xffffff : ENC.halo[B.phase - 1]);
+  M.glow.emissiveIntensity = 1.4 + (B.castName ? Math.sin(clock * 18) * 0.6 + 0.6 : 0);
+  M.shadow.position.set(B.x, 0.011, B.z);
   for (const r of rocks) { r.position.y = r.userData.y + Math.sin(clock * r.userData.s + r.userData.p) * 0.8; r.rotation.y += dt * 0.1; }
   floorMat.uniforms.uTime.value = clock;
 }
@@ -1867,7 +2044,7 @@ function start(data) {
   }
   const coarse = window.matchMedia && matchMedia('(pointer: coarse)').matches;
   if (coarse) setTouch(true); else setMind(true);
-  resetPlayer(); resetBoss(); resize(); refreshMemo();
+  setLevel(ENCOUNTERS.length - 1); resetPlayer(); resetBoss(); resize(); refreshMemo();
   requestAnimationFrame(t => { last = t; frame(t); });
 }
 const hot = window.claude && window.claude.hot;

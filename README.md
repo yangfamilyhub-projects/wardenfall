@@ -1,6 +1,6 @@
 # Wardenfall
 
-A web prototype of a boss-fight action game built around Wildstar-style telegraphs and high-mobility real-time combat. It's a single boss in a single arena, with no overworld.
+A web prototype of a boss-fight action game built around Wildstar-style telegraphs and high-mobility real-time combat. It's two boss levels in a single arena, with no overworld.
 
 Open `index.html` in a browser. It runs on desktop and on phones and tablets. Three.js r128 loads from cdnjs.
 
@@ -11,8 +11,9 @@ Open `index.html` in a browser. It runs on desktop and on phones and tablets. Th
 ## Systems
 - **Telegraphs:** one shader draws circles, rings, cones and rectangles that fill as they charge. Red hits everything, amber hits only the ground (jump it), and magenta hits only the air. Blue shapes are the player's own attacks.
 - **Movement:** double jump, two dash charges usable on the ground or in the air, coyote time, and air control. Dash gives no i-frames by default (`CFG.player.dashIFrames`).
+- **Levels:** `ENCOUNTERS` lists the bosses in order. Level 1 is the Sentinel: one phase, slow windups (`CFG.sentinel.timeScale`), light damage, and it never adapts. Level 2 is the Warden. Each level opens with an intro card, and your HP carries over (`CFG.carryHp`). If you lose, you can retry that level with the HP you started it with, or start over.
 - **Boss:** each ability is a generator script (`yield seconds`). The boss has three phases, expanding shockwaves, and a Cataclysm channel with interrupt armor and safe pads.
-- **Adaptive director (`Mind`):** profiles the player's range, air time, dodge timing and sidestep rate, and unlocks counter-abilities: Skyward Lances, Chain Pull, Whirling Rend, Feints, Echo Strikes and Pincer Rails. Ability choice is weighted toward attacks that have been landing. Memory persists in localStorage.
+- **Adaptive director (`Mind`):** profiles the player's range, air time, dodge timing and sidestep rate, and unlocks counter-abilities: Skyward Lances, Chain Pull, Whirling Rend, Feints, Echo Strikes and Pincer Rails. Ability choice is weighted toward attacks that have been landing. The profile keeps updating during the Sentinel fight, so the Warden starts with what it saw there; counters only unlock once the Warden fight begins. Memory persists in localStorage.
 
 All tuning values live in the `CFG` block at the top of the script.
 
