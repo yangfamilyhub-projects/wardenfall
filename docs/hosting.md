@@ -1,6 +1,6 @@
 # Hosting runbook
 
-Wardenfall is one static `index.html`, so hosting is just nginx serving a git checkout. There is no build step, no app process and no server-side state.
+Wardenfall is one static `index.html`, so hosting is mostly nginx serving a git checkout. There is no build step and no server-side game state. The one app process is the small multiplayer relay (`server/relay.js`), which only passes messages between players' browsers.
 
 ## What runs where
 
@@ -17,10 +17,12 @@ Wardenfall is one static `index.html`, so hosting is just nginx serving a git ch
 - **nginx:** one site per deployment in `/etc/nginx/sites-available/` (`wardenfall`, `wardenfall-wf1` … `wardenfall-wf4`), symlinked into `sites-enabled/`. The template is [`deploy/nginx-site.conf`](../deploy/nginx-site.conf).
 - **TLS:** Let's Encrypt via `certbot --nginx`. Prod has the cert `wardenfall.zizzy.name`; the four slots share the cert `wardenfall-slots`. certbot's systemd timer renews them.
 - **Branch switching:** [`deploy/wardenfall-slot`](../deploy/wardenfall-slot), installed as `/usr/local/bin/wardenfall-slot`.
+- **Multiplayer relay:** `server/relay.js`, installed in `/opt/wardenfall-relay` and run by the systemd unit `wardenfall-relay` on `127.0.0.1:3410`. Each nginx site proxies `/mp` to it. See [Multiplayer relay](#multiplayer-relay).
 
 Each nginx site:
 - serves files with `Cache-Control: no-cache`, so a refresh always picks up a deploy;
-- returns 403 for `.git/`, `deploy/` and `docs/`, because the web root is the repo;
+- returns 403 for `.git/`, `deploy/`, `docs/` and `server/`, because the web root is the repo;
+- proxies the WebSocket path `/mp` to the multiplayer relay;
 - on the test slots only, sends `X-Robots-Tag: noindex` so search engines skip them.
 
 ## Everyday tasks
@@ -81,6 +83,47 @@ git -C /var/www/wardenfall checkout -q --detach <good-sha>
 
 The next `wardenfall-slot prod` moves it back to the tip of `main`, so revert on `main` before running it again.
 
+## Multiplayer relay
+
+Whoever starts a fight hosts it: their browser runs the boss and streams it to everyone else. The relay only keeps a list of open fights and forwards messages, so it holds no game rules. That means it rarely needs updating, and test branches can change the multiplayer protocol without touching it.
+
+- **One relay for every site.** Fights are listed per site (by the `Host` header), so prod players never see wf1 fights and two branches on different slots never mix.
+- **Limits:** 4 players per fight, 40 open fights per site, 64 KB per message, about 90 messages a second per player. Browsers from origins other than `*.zizzy.name` and localhost are refused.
+- **Logs:** `journalctl -u wardenfall-relay`.
+- **When the relay is down,** solo play is unaffected. "Join a fight" says it can't reach the server, and fights simply aren't listed.
+
+### Install or update the relay
+
+From a checkout that has the version you want (usually prod after a merge):
+
+```
+rsync -a --delete --exclude node_modules /var/www/wardenfall/server/ /opt/wardenfall-relay/
+(cd /opt/wardenfall-relay && npm ci --omit=dev)
+install -m 644 /var/www/wardenfall/deploy/wardenfall-relay.service /etc/systemd/system/
+systemctl daemon-reload && systemctl enable --now wardenfall-relay
+systemctl restart wardenfall-relay   # when updating; open fights are dropped
+```
+
+### Add `/mp` to a site
+
+Copy the `location = /mp { ... }` block and the `server` entry in the deny rule from [`deploy/nginx-site.conf`](../deploy/nginx-site.conf) into that site's file in `/etc/nginx/sites-available/`, then `nginx -t && systemctl reload nginx`. A site without it still serves the game, but multiplayer is unavailable there.
+
+Check it end to end. This should print `101`:
+
+```
+curl -s -o /dev/null -w '%{http_code}\n' --http1.1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+  -H 'Origin: https://wf1.zizzy.name' https://wf1.zizzy.name/mp
+```
+
+### Test multiplayer locally
+
+```
+(cd server && npm ci && PORT=3499 node relay.js)
+```
+
+Then serve `index.html` with any server that proxies WebSocket upgrades on `/mp` to port 3499. Open two browser windows: start a fight in one and join it from the other.
+
 ## Things to know
 
 - **Saved progress is per browser and per site.** The Warden's memory is stored in `localStorage`, which browsers keep separately for each origin. Prod and each slot have their own memory, and nothing is shared between players or devices. Use the in-game "Wipe boss memory" button to reset it.
@@ -135,4 +178,6 @@ Use these steps to rebuild on a new server or add a slot. The example adds `wf5`
 | `git pull` says "not currently on a branch" | Expected: the checkouts are detached. Use `wardenfall-slot`. |
 | Certificate expired or warning | Run `certbot renew --dry-run` and check `systemctl list-timers \| grep certbot`. |
 | New subdomain doesn't resolve | Check `doctl compute domain records list zizzy.name` and query DigitalOcean directly with `dig @ns1.digitalocean.com <host>`. |
+| "Couldn't reach the multiplayer server" | Check `systemctl status wardenfall-relay`, and that the site's nginx file has the `/mp` block. |
+| Teammates freeze, or the boss stops for everyone | The host's tab was hidden or their device slept; browsers pause hidden tabs. The fight resumes when the host comes back. |
 | Game loads but overlays are stacked or stuck | Usually an artifact-viewer assumption (see Things to know). Reproduce on a slot, check the browser console, and look for CSS overriding `hidden`. |

@@ -1,0 +1,8 @@
+{
+  "name": "wardenfall-relay",
+  "private": true,
+  "description": "Room + message relay for Wardenfall multiplayer",
+  "main": "relay.js",
+  "scripts": { "start": "node relay.js" },
+  "dependencies": { "ws": "8.18.0" }
+}
