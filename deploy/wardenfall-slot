@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Point a Wardenfall deployment at a branch of yangfamilyhub-projects/wardenfall.
+#   wardenfall-slot                  show what every deployment is serving
+#   wardenfall-slot wf2 my-branch    serve origin/my-branch at https://wf2.zizzy.name
+#   wardenfall-slot wf2              refresh wf2 to the latest commit of its current branch
+#   wardenfall-slot prod             update https://wardenfall.zizzy.name (always main)
+set -euo pipefail
+
+dir_for() {
+  case "$1" in
+    prod) echo /var/www/wardenfall ;;
+    wf[1-4]) echo "/var/www/wardenfall-slots/$1" ;;
+    *) echo "unknown slot '$1' (use prod or wf1-wf4)" >&2; exit 2 ;;
+  esac
+}
+host_for() { [ "$1" = prod ] && echo wardenfall.zizzy.name || echo "$1.zizzy.name"; }
+
+status() {
+  for s in prod wf1 wf2 wf3 wf4; do
+    d=$(dir_for "$s")
+    printf '%-5s https://%-24s %-28s %s\n' "$s" "$(host_for "$s")" \
+      "$(cat "$d/.git/SLOT_BRANCH" 2>/dev/null || echo main)" "$(git -C "$d" log -1 --format='%h %s' | cut -c1-60)"
+  done
+}
+
+[ $# -eq 0 ] && { status; exit 0; }
+
+slot=$1; d=$(dir_for "$slot")
+branch=${2:-$(cat "$d/.git/SLOT_BRANCH" 2>/dev/null || echo main)}
+[ "$slot" = prod ] && [ "$branch" != main ] && { echo "prod only serves main" >&2; exit 2; }
+
+git -C "$d" fetch -q --prune origin
+git -C "$d" rev-parse -q --verify "origin/$branch" >/dev/null || { echo "no branch origin/$branch" >&2; exit 1; }
+# Detached checkout of the remote branch: slots never hold local changes, force-pushes are fine.
+git -C "$d" checkout -q --detach --force "origin/$branch"
+echo "$branch" > "$d/.git/SLOT_BRANCH"
+echo "$slot -> $branch @ $(git -C "$d" log -1 --format='%h %s')  (https://$(host_for "$slot"))"

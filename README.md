@@ -15,3 +15,6 @@ Open `index.html` in a browser. It runs on desktop and on phones and tablets. Th
 - **Adaptive director (`Mind`):** profiles the player's range, air time, dodge timing and sidestep rate, and unlocks counter-abilities: Skyward Lances, Chain Pull, Whirling Rend, Feints, Echo Strikes and Pincer Rails. Ability choice is weighted toward attacks that have been landing. Memory persists in localStorage.
 
 All tuning values live in the `CFG` block at the top of the script.
+
+## Hosting
+Live at https://wardenfall.zizzy.name, with branch test slots at `wf1`–`wf4.zizzy.name`. See [docs/hosting.md](docs/hosting.md) for deploying, testing branches and rebuilding the setup.
